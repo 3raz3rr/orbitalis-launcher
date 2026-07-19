@@ -1,0 +1,20 @@
+{
+  "feeds": {
+    "dev": {
+      "label": "Разработка",
+      "urls": [
+        "https://devassets.hornyjail.space/launcher/dev-news.json",
+        "http://proxy.hornyjail.space:50080/launcher/dev-news.json"
+      ]
+    },
+    "game": {
+      "label": "Игровые",
+      "urls": [
+        "https://devassets.hornyjail.space/launcher/game-news.json",
+        "http://proxy.hornyjail.space:50080/launcher/game-news.json"
+      ]
+    }
+  },
+  "maxItems": 600,
+  "pageSize": 40
+}

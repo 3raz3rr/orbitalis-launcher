@@ -1,0 +1,19 @@
+{
+  "version": "0.6.0",
+  "file": "OrbitalisLauncher-0.6.0.exe",
+  "url": "https://devassets.hornyjail.space/launcher/OrbitalisLauncher-0.6.0.exe",
+  "sha256": "cfc67f6e2cefe089121fb1ec0851247bafb99870bef5a816bf27d39b400fdc6a",
+  "virustotal": "https://www.virustotal.com/gui/file/cfc67f6e2cefe089121fb1ec0851247bafb99870bef5a816bf27d39b400fdc6a",
+  "scannedAt": "2026-07-19T22:11:45Z",
+  "stats": {
+    "malicious": 0,
+    "suspicious": 0,
+    "undetected": 67,
+    "harmless": 0,
+    "timeout": 1,
+    "confirmed-timeout": 0,
+    "failure": 0,
+    "type-unsupported": 6
+  },
+  "flagged": []
+}

@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; connect-src 'self' https://auth.hornyjail.space https://devassets.hornyjail.space http://proxy.hornyjail.space:* https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: blob: https://cdn.discordapp.com https://media.discordapp.net https://*.discordapp.com https://*.discordapp.net https://cdn.jsdelivr.net https://devassets.hornyjail.space http://proxy.hornyjail.space:*;"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Orbitalis</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="parallax-container" aria-hidden="true">
+      <div class="parallax-layer parallax-nebula" id="parallax-nebula"></div>
+      <div class="parallax-layer parallax-stars-small" id="parallax-stars-small"></div>
+      <div class="parallax-layer parallax-stars-big" id="parallax-stars-big"></div>
+    </div>
+    <div class="parallax-gradient" aria-hidden="true"></div>
+
+    <div class="app">
+      <header class="topbar">
+        <nav class="topnav" aria-label="Разделы">
+          <button type="button" class="menu_button active" data-view="home">играть</button>
+          <button type="button" class="menu_button" data-view="news">
+            новости
+            <span id="nav-news-badge" class="nav-badge" hidden>0</span>
+          </button>
+
+          <div id="auth-box" class="auth-box">
+            <button type="button" id="auth-login" class="menu_button">войти в аккаунт</button>
+            <div id="auth-user" class="auth-user" hidden>
+              <button
+                type="button"
+                id="auth-open-account"
+                class="menu_button account-tab"
+                data-view="account"
+              >
+                <img id="auth-avatar" class="auth-avatar" alt="" width="24" height="24" />
+                <span id="auth-name">аккаунт</span>
+              </button>
+              <button
+                type="button"
+                id="auth-logout"
+                class="icon-btn"
+                title="Выйти"
+                aria-label="Выйти"
+              >
+                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                  <path
+                    fill="currentColor"
+                    d="M16 13v-2H7V8l-5 4 5 4v-3h9zM20 3h-8a2 2 0 0 0-2 2v3h2V5h8v14h-8v-3h-2v3a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"
+                  />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </nav>
+
+      </header>
+
+      <main class="stage">
+        <section id="view-home" class="view view-home">
+          <div class="home-grid">
+            <div class="home-hero">
+              <div class="hero-brand">
+                <img class="brand-logo" src="assets/logo.png" alt="" width="88" height="88" />
+                <h1 class="lobby_title">ORBITALIS</h1>
+                <div class="lobby_subtitle">LAUNCHER</div>
+              </div>
+
+              <button type="button" id="play-main" class="play">
+                <span class="play-copy">
+                  <strong id="play-label">Присоединиться</strong>
+                  <small id="play-sub">Выбор маршрута…</small>
+                </span>
+              </button>
+
+              <div class="route-picker">
+                <span class="route-picker-label">Маршрут</span>
+                <div class="route-picker-row">
+                <div class="dropdown" id="route-dropdown">
+                  <button
+                    type="button"
+                    class="dropdown-trigger"
+                    id="route-trigger"
+                    aria-haspopup="listbox"
+                    aria-expanded="false"
+                  >
+                    <span class="route-dot" id="route-trigger-dot"></span>
+                    <span class="route-trigger-name" id="route-trigger-name">Основной · прямой</span>
+                    <span class="route-ms" id="route-trigger-ms">-</span>
+                    <svg class="dropdown-caret" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                      <path fill="currentColor" d="M7 10l5 5 5-5z" />
+                    </svg>
+                  </button>
+                  <div class="dropdown-menu" id="route-menu" role="listbox" hidden>
+                    <button type="button" class="route-option" data-server="mainDirect" role="option" title="play.hornyjail.space">
+                      <span class="route-dot" data-dot="mainDirect"></span>
+                      <span class="route-opt-name">Основной · прямой</span>
+                      <span class="route-ms" id="ms-mainDirect">-</span>
+                    </button>
+                    <button type="button" class="route-option" data-server="mainProxy" role="option" title="proxy.hornyjail.space">
+                      <span class="route-dot" data-dot="mainProxy"></span>
+                      <span class="route-opt-name">Основной · прокси</span>
+                      <span class="route-ms" id="ms-mainProxy">-</span>
+                    </button>
+                    <button type="button" class="route-option" data-server="devDirect" role="option" title="play.hornyjail.space">
+                      <span class="route-dot" data-dot="devDirect"></span>
+                      <span class="route-opt-name">DEV · прямой</span>
+                      <span class="route-ms" id="ms-devDirect">-</span>
+                    </button>
+                    <button type="button" class="route-option" data-server="devProxy" role="option" title="proxy.hornyjail.space">
+                      <span class="route-dot" data-dot="devProxy"></span>
+                      <span class="route-opt-name">DEV · прокси</span>
+                      <span class="route-ms" id="ms-devProxy">-</span>
+                    </button>
+                  </div>
+                </div>
+                  <button
+                    type="button"
+                    class="route-refresh-btn"
+                    id="refresh-probes"
+                    title="Обновить статус и пинги"
+                    aria-label="Обновить статус"
+                  >
+                    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                      <path
+                        fill="currentColor"
+                        d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.75 10h-2.1A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"
+                      />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <p class="last-line quiet" id="last-line"></p>
+              <p class="panel-note quiet route-note" id="route-note" hidden></p>
+            </div>
+
+            <aside class="home-status">
+              <div class="status-card">
+                <div class="status-card-kind">
+                  <span class="status-kind-badge is-main" id="status-kind-badge">основной</span>
+                </div>
+                <div class="status-card-title">Сейчас на станции</div>
+                <div class="status-line" id="status-line">Загрузка статуса…</div>
+              </div>
+            </aside>
+          </div>
+
+          <p class="hero-intro" id="hero-tagline" hidden></p>
+          <span id="status-kind" hidden></span>
+          <span id="status-players" hidden></span>
+          <span id="status-playing" hidden></span>
+          <span id="status-security" hidden></span>
+          <span id="status-map" hidden></span>
+          <span id="status-round" hidden></span>
+          <span id="status-story" hidden></span>
+          <span id="status-note" hidden></span>
+        </section>
+
+        <section id="view-news" class="view news-panel" hidden>
+          <div class="panel-head">
+            <div>
+              <h2>Новости</h2>
+            </div>
+            <div class="news-tabs" role="tablist">
+              <button type="button" class="news-tab active" data-feed="dev" role="tab">
+                <span class="news-tab-label">Разработка</span>
+                <span class="news-badge" data-badge="dev" hidden>0</span>
+              </button>
+              <button type="button" class="news-tab" data-feed="game" role="tab">
+                <span class="news-tab-label">Игровые</span>
+                <span class="news-badge" data-badge="game" hidden>0</span>
+              </button>
+            </div>
+          </div>
+          <div id="news-list" class="news-list" role="tabpanel"></div>
+        </section>
+
+        <section id="view-account" class="view account-view" hidden>
+          <div id="account-body" class="account-body">
+            <p class="panel-note">Войди через Discord, чтобы увидеть карточку.</p>
+          </div>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <div class="footer-tools">
+          <button type="button" class="tool-btn" id="open-wiki">вики</button>
+          <button type="button" class="tool-btn" id="open-discord">discord</button>
+          <button type="button" class="tool-btn" id="open-boosty">boosty</button>
+          <button type="button" class="tool-btn" id="open-byond">byond</button>
+          <button type="button" class="tool-btn" id="check-updates">обновления</button>
+          <button type="button" class="tool-btn" id="patch-byond-ads">no-ad patch</button>
+          <button type="button" class="tool-btn" id="run-diag">диагностика</button>
+        </div>
+        <p id="toast" class="toast" hidden></p>
+        <div id="update-progress" class="update-progress" hidden>
+          <div class="update-progress-label">Скачивание обновления…</div>
+          <div class="update-progress-track">
+            <div id="update-progress-bar" class="update-progress-bar"></div>
+          </div>
+          <div id="update-progress-pct" class="update-progress-pct">0%</div>
+        </div>
+        <a
+          id="open-virustotal"
+          class="vt-link"
+          href="#"
+          target="_blank"
+          rel="noreferrer"
+          hidden
+          title="Отчёт VirusTotal"
+        >VirusTotal</a>
+        <span id="version" class="version"></span>
+      </footer>
+    </div>
+
+    <div id="byond-modal" class="modal-overlay" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="byond-modal-title">
+        <div class="modal-head">
+          <h2 id="byond-modal-title">BYOND</h2>
+          <button type="button" id="byond-modal-close" class="icon-btn" aria-label="Закрыть">
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M18.3 5.71 12 12.01 5.7 5.7 4.29 7.12 10.59 13.4l-6.3 6.29 1.42 1.42 6.3-6.3 6.29 6.3 1.42-1.42-6.3-6.29 6.3-6.29z"
+              />
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="modal-row">
+            <span class="modal-label">Статус</span>
+            <strong id="byond-modal-status" class="modal-value">-</strong>
+          </div>
+          <div class="modal-row">
+            <span class="modal-label">Версия</span>
+            <strong id="byond-modal-version" class="modal-value">-</strong>
+          </div>
+          <div class="modal-row">
+            <span class="modal-label">No-ad патч</span>
+            <strong id="byond-modal-patch" class="modal-value">-</strong>
+          </div>
+          <div class="modal-row modal-row-path">
+            <span class="modal-label">Путь</span>
+            <span id="byond-modal-path" class="modal-value modal-path">-</span>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" id="byond-modal-pick" class="ghost">Изменить путь</button>
+          <button type="button" id="byond-modal-reset" class="ghost" hidden>Сбросить</button>
+          <button type="button" id="byond-modal-download" class="ghost">Скачать BYOND</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>

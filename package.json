@@ -1,0 +1,52 @@
+{
+  "name": "orbitalis-launcher",
+  "version": "0.6.0",
+  "description": "Orbitalis SS13 launcher - routes, news, Discord login, station status",
+  "main": "src/main.js",
+  "author": "Orbitalis",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --win portable"
+  },
+  "build": {
+    "appId": "space.hornyjail.orbitalis.launcher",
+    "productName": "Orbitalis Launcher",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*"
+    ],
+    "protocols": [
+      {
+        "name": "Orbitalis",
+        "schemes": [
+          "orbitalis"
+        ]
+      }
+    ],
+    "win": {
+      "icon": "icon.ico",
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "OrbitalisLauncher-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "OrbitalisLauncher-${version}.exe"
+    }
+  },
+  "devDependencies": {
+    "electron": "^36.4.0",
+    "electron-builder": "^26.0.12"
+  }
+}

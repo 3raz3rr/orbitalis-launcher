@@ -1,0 +1,127 @@
+name: VirusTotal
+
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Scan even if this version was already scanned"
+        type: boolean
+        default: true
+      file_url:
+        description: "Override .exe URL (empty = CDN version.json)"
+        type: string
+        required: false
+  schedule:
+    - cron: "*/30 * * * *"
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  virustotal:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve target build
+        id: target
+        env:
+          INPUT_URL: ${{ inputs.file_url }}
+          FORCE: ${{ inputs.force }}
+          EVENT: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_URL:-}" ]; then
+            URL="$INPUT_URL"
+            VERSION=$(basename "$URL" | sed -E 's/.*-([0-9.]+)\.exe/\1/')
+          elif [ "$EVENT" = "release" ]; then
+            URL=$(gh api "repos/${{ github.repository }}/releases/${{ github.event.release.id }}/assets" \
+              --jq '[.[] | select(.name | test("\\.exe$";"i"))] | first | .browser_download_url')
+            if [ -z "$URL" ] || [ "$URL" = "null" ]; then
+              echo "No .exe on this GitHub Release" >&2
+              exit 1
+            fi
+            VERSION="${{ github.event.release.tag_name }}"
+            VERSION="${VERSION#v}"
+          else
+            META=$(curl -fsSL https://devassets.hornyjail.space/launcher/version.json)
+            URL=$(echo "$META" | jq -r .url)
+            VERSION=$(echo "$META" | jq -r .version)
+          fi
+
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved v$VERSION -> $URL"
+
+          PREV_VERSION=""
+          if [ -f virustotal.json ]; then
+            PREV_VERSION=$(jq -r '.version // empty' virustotal.json)
+          fi
+
+          DO_SCAN=1
+          if [ "$EVENT" = "schedule" ] && [ -n "$PREV_VERSION" ] && [ "$PREV_VERSION" = "$VERSION" ]; then
+            DO_SCAN=0
+          fi
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "${FORCE:-true}" = "false" ] && [ "$PREV_VERSION" = "$VERSION" ]; then
+            DO_SCAN=0
+          fi
+          echo "scan=$DO_SCAN" >> "$GITHUB_OUTPUT"
+
+      - name: Download build
+        id: download
+        if: steps.target.outputs.scan == '1'
+        run: |
+          set -euo pipefail
+          URL="${{ steps.target.outputs.url }}"
+          NAME=$(basename "$URL")
+          curl -fsSL "$URL" -o "$NAME"
+          SHA=$(sha256sum "$NAME" | awk '{print $1}')
+          ls -lh "$NAME"
+          echo "file=$NAME" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Skip notice
+        if: steps.target.outputs.scan != '1'
+        run: |
+          echo "### VirusTotal" >> "$GITHUB_STEP_SUMMARY"
+          echo "Already scanned **v${{ steps.target.outputs.version }}** - skip." >> "$GITHUB_STEP_SUMMARY"
+          if [ -f virustotal.json ]; then
+            echo "Report: $(jq -r .virustotal virustotal.json)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload to VirusTotal
+        id: vt_upload
+        if: steps.target.outputs.scan == '1'
+        continue-on-error: true
+        uses: crazy-max/ghaction-virustotal@v4
+        with:
+          vt_api_key: ${{ secrets.VIRUSTOTAL_API_KEY }}
+          files: |
+            ${{ steps.download.outputs.file }}
+          update_release_body: ${{ github.event_name == 'release' }}
+
+      - name: Wait for analysis
+        if: steps.target.outputs.scan == '1'
+        run: sleep 20
+
+      - name: Publish results
+        if: steps.target.outputs.scan == '1'
+        env:
+          VERSION: ${{ steps.target.outputs.version }}
+          FILE_URL: ${{ steps.target.outputs.url }}
+          FILE_NAME: ${{ steps.download.outputs.file }}
+          SHA256: ${{ steps.download.outputs.sha256 }}
+          VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
+        run: python3 .github/scripts/publish-vt-results.py
+
+      - name: Upload virustotal.json artifact
+        if: steps.target.outputs.scan == '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: virustotal-v${{ steps.target.outputs.version }}
+          path: virustotal.json
+          if-no-files-found: error
