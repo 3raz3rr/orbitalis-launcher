@@ -19,6 +19,37 @@ const state = {
     configured: false,
     user: null,
   },
+  logs: {
+    configured: false,
+    apiUrl: null,
+    staff: false,
+    tree: null,
+    round: null,
+    selectedFiles: {},
+    activeTab: "files",
+    jobId: null,
+    viewMeta: null,
+    page: 1,
+    lines: [],
+    actors: { ckeys: [], names: [] },
+    enabledCats: null,
+    loadingMore: false,
+  },
+  music: {
+    configured: false,
+    apiUrl: null,
+    ready: false,
+    canModerate: false,
+    ckey: null,
+    tab: "mine",
+    tracks: [],
+    playlistIds: [],
+    playlistTracks: [],
+    counts: { mine: 0, public: 0, playlist: 0 },
+    nowPlaying: null,
+    q: "",
+    loading: false,
+  },
 };
 
 const els = {
@@ -52,8 +83,42 @@ const els = {
   viewHome: document.getElementById("view-home"),
   viewNews: document.getElementById("view-news"),
   viewAccount: document.getElementById("view-account"),
+  viewLogs: document.getElementById("view-logs"),
+  viewMusic: document.getElementById("view-music"),
   accountBody: document.getElementById("account-body"),
   navNewsBadge: document.getElementById("nav-news-badge"),
+  navLogs: document.getElementById("nav-logs"),
+  navMusic: document.getElementById("nav-music"),
+  logsStatusNote: document.getElementById("logs-status-note"),
+  musicStatusNote: document.getElementById("music-status-note"),
+  musicSearch: document.getElementById("music-search"),
+  musicUploadBtn: document.getElementById("music-upload-btn"),
+  musicBody: document.getElementById("music-body"),
+  musicAudio: document.getElementById("music-audio"),
+  musicPlayerToggle: document.getElementById("music-player-toggle"),
+  musicPlayerTitle: document.getElementById("music-player-title"),
+  musicPlayerSub: document.getElementById("music-player-sub"),
+  musicPlayerSeek: document.getElementById("music-player-seek"),
+  musicPlayerCur: document.getElementById("music-player-cur"),
+  musicPlayerDur: document.getElementById("music-player-dur"),
+  musicPlayerVol: document.getElementById("music-player-vol"),
+  musicCountMine: document.getElementById("music-count-mine"),
+  musicCountPublic: document.getElementById("music-count-public"),
+  musicCountPlaylist: document.getElementById("music-count-playlist"),
+  logsYear: document.getElementById("logs-year"),
+  logsMonth: document.getElementById("logs-month"),
+  logsDay: document.getElementById("logs-day"),
+  logsRound: document.getElementById("logs-round"),
+  logsResetLatest: document.getElementById("logs-reset-latest"),
+  logsRoundPanel: document.getElementById("logs-round-panel"),
+  logsRoundHeader: document.getElementById("logs-round-header"),
+  logsTabs: document.getElementById("logs-tabs"),
+  logsTabBody: document.getElementById("logs-tab-body"),
+  logsReader: document.getElementById("logs-reader"),
+  logsViewMeta: document.getElementById("logs-view-meta"),
+  logsLoadMore: document.getElementById("logs-load-more"),
+  logsCatToggles: document.getElementById("logs-cat-toggles"),
+  logsLines: document.getElementById("logs-lines"),
   statusLine: document.getElementById("status-line"),
   statusKind: document.getElementById("status-kind"),
   statusPlayers: document.getElementById("status-players"),
@@ -837,6 +902,8 @@ function renderLastLine() {
 function setView(view) {
   state.view = view;
   document.body.classList.toggle("on-account", view === "account");
+  document.body.classList.toggle("on-logs", view === "logs");
+  document.body.classList.toggle("on-music", view === "music");
   if (els.viewHome) {
     els.viewHome.hidden = view !== "home";
   }
@@ -845,6 +912,12 @@ function setView(view) {
   }
   if (els.viewAccount) {
     els.viewAccount.hidden = view !== "account";
+  }
+  if (els.viewLogs) {
+    els.viewLogs.hidden = view !== "logs";
+  }
+  if (els.viewMusic) {
+    els.viewMusic.hidden = view !== "music";
   }
   document.querySelectorAll(".menu_button[data-view]").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.view === view);
@@ -856,6 +929,12 @@ function setView(view) {
         els.newsList.scrollTop = els.newsList.scrollHeight;
       });
     }
+  }
+  if (view === "logs") {
+    openLogs();
+  }
+  if (view === "music") {
+    openMusic();
   }
 }
 
@@ -1475,9 +1554,24 @@ function bindUi() {
         openAccount();
         return;
       }
+      if (view === "logs") {
+        if (!state.logs.staff) {
+          toast("Нет доступа к логам", true);
+          return;
+        }
+        setView(view);
+        return;
+      }
+      if (view === "music") {
+        setView("music");
+        return;
+      }
       setView(view);
     });
   });
+
+  bindLogsUi();
+  bindMusicUi();
 
   document.getElementById("open-wiki").addEventListener("click", () => {
     window.launcher.openExternal(state.links.wiki);
@@ -1532,9 +1626,14 @@ function bindUi() {
   els.authLogout.addEventListener("click", async () => {
     await window.launcher.authLogout();
     state.auth.user = null;
+    setLogsStaff(false);
+    setMusicReady(false);
     renderAuth();
     if (state.view === "account") {
       renderAccountPlaceholder();
+    }
+    if (state.view === "logs" || state.view === "music") {
+      setView("home");
     }
     toast("Вышел из Discord");
   });
@@ -1548,11 +1647,23 @@ function bindUi() {
     if (payload?.user) {
       const name = payload.user.globalName || payload.user.username;
       toast(`Вошёл: ${name}`);
+      refreshLogsStaff();
+      refreshMusicAccess();
       if (state.view === "account") {
         loadAccount();
       }
-    } else if (state.view === "account") {
-      renderAccountPlaceholder();
+      if (state.view === "music") {
+        openMusic();
+      }
+    } else {
+      setLogsStaff(false);
+      setMusicReady(false);
+      if (state.view === "account") {
+        renderAccountPlaceholder();
+      }
+      if (state.view === "logs" || state.view === "music") {
+        setView("home");
+      }
     }
   });
 
@@ -1928,6 +2039,1586 @@ async function loadVirusTotalLink() {
   }
 }
 
+const LOG_CAT_TITLES = {
+  SAY: "Речь",
+  WHISPER: "Шёпот",
+  EMOTE: "Эмоции",
+  OOC: "OOC",
+  MENTOR: "Ментор",
+  PRAYER: "Молитвы",
+  SUBTLE: "Subtle",
+  COMPAT: "Compat",
+  ACCESS: "Access",
+  ATTACK: "Атаки",
+  ADMIN: "Админ",
+  EVENT: "События",
+  SPAWN: "Spawn",
+  LOGIN: "Login",
+  LOGOUT: "Logout",
+  DESPAWN: "Despawn",
+};
+
+function classifyLog(type, body) {
+  switch (type) {
+    case "GAME-SAY":
+      return { label: "SAY", cat: "SAY" };
+    case "GAME-WHISPER":
+      return { label: "WHISPER", cat: "WHISPER" };
+    case "GAME-EMOTE":
+    case "GAME-RADIO-EMOTE":
+      return { label: "EMOTE", cat: "EMOTE" };
+    case "GAME-OOC":
+      return { label: "OOC", cat: "OOC" };
+    case "GAME-MENTOR":
+      return { label: "MENTOR", cat: "MENTOR" };
+    case "GAME-PRAYER":
+      return { label: "PRAYER", cat: "PRAYER" };
+    case "GAME-SUBTLE":
+      return { label: "SUBTLE", cat: "SUBTLE" };
+    case "GAME-TOPIC":
+      return { label: "TOPIC", cat: "TOPIC" };
+    case "GAME-COMPAT":
+      return { label: "COMPAT", cat: "COMPAT" };
+    case "GAME":
+      return { label: "EVENT", cat: "EVENT" };
+    case "GAME-ACCESS": {
+      const bl = String(body || "").toLowerCase();
+      if (bl.indexOf("mob login") === 0) return { label: "SPAWN", cat: "SPAWN" };
+      if (bl.indexOf("login") === 0) return { label: "LOGIN", cat: "LOGIN" };
+      if (bl.indexOf("logout") === 0) return { label: "LOGOUT", cat: "LOGOUT" };
+      if (bl.indexOf("ghost sent to lobby") === 0) {
+        return { label: "DESPAWN", cat: "DESPAWN" };
+      }
+      return { label: "ACCESS", cat: "ACCESS" };
+    }
+    default:
+      return { label: type, cat: type };
+  }
+}
+
+function setLogsStaff(staff) {
+  state.logs.staff = staff === true;
+  if (els.navLogs) {
+    els.navLogs.hidden = !state.logs.staff;
+  }
+  if (!state.logs.staff && state.view === "logs") {
+    setView("home");
+  }
+}
+
+function logsApiHostLabel() {
+  try {
+    return state.logs.apiUrl ? new URL(state.logs.apiUrl).host : "?";
+  } catch {
+    return state.logs.apiUrl || "?";
+  }
+}
+
+async function refreshLogsStaff() {
+  if (els.navLogs) els.navLogs.hidden = true;
+  state.logs.staff = false;
+  if (!state.logs.configured || !state.auth.user) {
+    setLogsStaff(false);
+    return false;
+  }
+  try {
+    const me = await window.launcher.logsMe();
+    const allowed = Boolean(me?.ok && me.staff === true);
+    setLogsStaff(allowed);
+    if (els.logsStatusNote) {
+      if (!me?.ok) {
+        els.logsStatusNote.textContent = `${logsApiHostLabel()}: ${
+          me?.error || "нет доступа"
+        }`;
+      } else if (!allowed) {
+        els.logsStatusNote.textContent = `${logsApiHostLabel()} · нет доступа`;
+      } else {
+        els.logsStatusNote.textContent = me.bypass
+          ? `${logsApiHostLabel()} · local bypass`
+          : `${logsApiHostLabel()} · staff`;
+      }
+    }
+    return allowed;
+  } catch (error) {
+    setLogsStaff(false);
+    if (els.logsStatusNote) {
+      els.logsStatusNote.textContent = `${logsApiHostLabel()}: ${
+        error?.message || "ошибка logs API"
+      }`;
+    }
+    return false;
+  }
+}
+
+function fillSelect(select, values, selected) {
+  if (!select) return;
+  select.innerHTML = "";
+  for (const value of values || []) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = value;
+    if (value === selected) opt.selected = true;
+    select.appendChild(opt);
+  }
+  select.disabled = !(values && values.length);
+}
+
+function syncLogsSelectors(tree) {
+  state.logs.tree = tree;
+  fillSelect(els.logsYear, tree.years, tree.year);
+  fillSelect(els.logsMonth, tree.months, tree.month);
+  fillSelect(els.logsDay, tree.days, tree.day);
+  fillSelect(els.logsRound, tree.rounds, tree.round);
+}
+
+function rememberLogsSelection(tree) {
+  if (!tree?.year) return;
+  const logsSelection = {
+    year: tree.year || null,
+    month: tree.month || null,
+    day: tree.day || null,
+    round: tree.round || null,
+  };
+  state.prefs = { ...(state.prefs || {}), logsSelection };
+  window.launcher.savePrefs({ logsSelection }).catch(() => {});
+}
+
+function savedLogsSelection() {
+  const sel = state.prefs?.logsSelection;
+  if (!sel || typeof sel !== "object") return {};
+  return {
+    year: sel.year || "",
+    month: sel.month || "",
+    day: sel.day || "",
+    round: sel.round || "",
+  };
+}
+
+function showLogsReader(visible) {
+  if (els.logsReader) els.logsReader.hidden = !visible;
+}
+
+async function openLogs() {
+  if (!state.logs.configured) {
+    toast("Logs API не настроен", true);
+    return;
+  }
+  if (!state.auth.user) {
+    toast("Сначала войди через Discord", true);
+    return;
+  }
+  const staff = state.logs.staff || (await refreshLogsStaff());
+  if (!staff) {
+    toast("Нет доступа к логам", true);
+    setView("home");
+    return;
+  }
+  const saved = savedLogsSelection();
+  await loadLogsTree(
+    saved.year
+      ? {
+          year: saved.year,
+          month: saved.month,
+          day: saved.day,
+          round: saved.round,
+        }
+      : {}
+  );
+}
+
+async function resetLogsToLatest() {
+  state.prefs = { ...(state.prefs || {}), logsSelection: null };
+  window.launcher.savePrefs({ logsSelection: null }).catch(() => {});
+  showLogsReader(false);
+  state.logs.jobId = null;
+  state.logs.lines = [];
+  await loadLogsTree({
+    year: "",
+    month: "",
+    day: "",
+    round: "",
+  });
+  toast("Открыт самый свежий раунд");
+}
+
+async function loadLogsTree(patch = {}) {
+  const current = state.logs.tree || {};
+  const query = {};
+  if (Object.prototype.hasOwnProperty.call(patch, "year")) {
+    if (patch.year) query.year = patch.year;
+  } else if (current.year) {
+    query.year = current.year;
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "month")) {
+    if (patch.month) query.month = patch.month;
+  } else if (!Object.prototype.hasOwnProperty.call(patch, "year") && current.month) {
+    query.month = current.month;
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "day")) {
+    if (patch.day) query.day = patch.day;
+  } else if (
+    !Object.prototype.hasOwnProperty.call(patch, "year") &&
+    !Object.prototype.hasOwnProperty.call(patch, "month") &&
+    current.day
+  ) {
+    query.day = current.day;
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "round")) {
+    if (patch.round) query.round = patch.round;
+  } else if (
+    !Object.prototype.hasOwnProperty.call(patch, "year") &&
+    !Object.prototype.hasOwnProperty.call(patch, "month") &&
+    !Object.prototype.hasOwnProperty.call(patch, "day") &&
+    current.round
+  ) {
+    query.round = current.round;
+  }
+  if (els.logsStatusNote) els.logsStatusNote.textContent = "Загрузка…";
+  const tree = await window.launcher.logsTree(query);
+  if (!tree?.ok) {
+    if (els.logsStatusNote) {
+      els.logsStatusNote.textContent = tree?.error || "Не удалось загрузить дерево";
+    }
+    toast(tree?.error || "Ошибка дерева логов", true);
+    return;
+  }
+  syncLogsSelectors(tree);
+  rememberLogsSelection(tree);
+  if (els.logsStatusNote) {
+    els.logsStatusNote.textContent = tree.round
+      ? `${logsApiHostLabel()} · ${tree.day}.${tree.month}.${tree.year} · ${tree.round}`
+      : `${logsApiHostLabel()} · нет раундов`;
+  }
+  if (tree.year && tree.month && tree.day && tree.round) {
+    await loadLogsRound({
+      year: tree.year,
+      month: tree.month,
+      day: tree.day,
+      round: tree.round,
+    });
+  } else if (els.logsRoundPanel) {
+    els.logsRoundPanel.hidden = true;
+  }
+}
+
+async function loadLogsRound(query) {
+  // Fast path: files only, then meta in background.
+  const filesData = await window.launcher.logsRound({
+    ...query,
+    fields: "files",
+  });
+  if (!filesData?.ok) {
+    toast(filesData?.error || "Ошибка раунда", true);
+    return;
+  }
+  state.logs.round = {
+    ...filesData,
+    roundInfo: state.logs.round?.round === filesData.round ? state.logs.round.roundInfo : null,
+    inventory: null,
+  };
+  state.logs.selectedFiles = {};
+  for (const file of filesData.files || []) {
+    const label = String(file.label || file.rel || "").toLowerCase();
+    // game/inventory are huge — off by default
+    const heavy = label.startsWith("game.") || label.startsWith("inventory.");
+    state.logs.selectedFiles[file.rel] = !heavy;
+  }
+  state.logs.activeTab = "files";
+  if (els.logsRoundPanel) els.logsRoundPanel.hidden = false;
+  renderLogsRound();
+
+  const metaData = await window.launcher.logsRound({
+    ...query,
+    fields: "meta",
+  });
+  if (metaData?.ok && state.logs.round?.round === metaData.round) {
+    state.logs.round.roundInfo = metaData.roundInfo || null;
+    renderLogsRound();
+  }
+}
+
+async function ensureLogsInventory() {
+  const round = state.logs.round;
+  if (!round || round.inventory) return round?.inventory || null;
+  const data = await window.launcher.logsRound({
+    year: round.year,
+    month: round.month,
+    day: round.day,
+    round: round.round,
+    fields: "inventory",
+  });
+  if (!data?.ok) {
+    toast(data?.error || "Ошибка inventory", true);
+    return null;
+  }
+  if (state.logs.round?.round === round.round) {
+    state.logs.round.inventory = data.inventory || {
+      snapshot_count: 0,
+      event_count: 0,
+      snapshots: {},
+      events: [],
+    };
+  }
+  return state.logs.round.inventory;
+}
+
+function renderLogsRound() {
+  const data = state.logs.round;
+  if (!data) return;
+  const info = data.roundInfo || {};
+  if (els.logsRoundHeader) {
+    els.logsRoundHeader.innerHTML = `
+      <span class="round-title">${escapeHtml(data.round)}</span>
+      <span>${escapeHtml(`${data.day}.${data.month}.${data.year}`)}</span>
+      ${
+        info.duration
+          ? `<span>Длительность <span class="val">${escapeHtml(
+              info.duration
+            )}</span></span>`
+          : ""
+      }
+      <span>Экипаж <span class="val">${(info.manifest || []).length}</span></span>
+      ${
+        (info.antagonists || []).length
+          ? `<span>Антаги <span class="val antag">${info.antagonists.length}</span></span>`
+          : ""
+      }
+      ${
+        (info.ghost_roles || []).length
+          ? `<span>Ghost <span class="val" style="color:#bd93f9">${info.ghost_roles.length}</span></span>`
+          : ""
+      }
+    `;
+  }
+
+  const inv = data.inventory;
+  const tabs = [
+    { id: "files", label: `Файлы (${(data.files || []).length})` },
+  ];
+  if ((info.manifest || []).length) {
+    tabs.push({ id: "manifest", label: `Manifest (${info.manifest.length})` });
+  }
+  if ((info.antagonists || []).length) {
+    tabs.push({
+      id: "antags",
+      label: `Antagonists (${info.antagonists.length})`,
+    });
+  }
+  if ((info.ghost_roles || []).length) {
+    tabs.push({
+      id: "ghost",
+      label: `Ghost Roles (${info.ghost_roles.length})`,
+    });
+  }
+  tabs.push({
+    id: "inventory",
+    label: inv
+      ? `Inventory (${inv.snapshot_count || 0}/${inv.event_count || 0})`
+      : "Inventory",
+  });
+  if (!tabs.some((t) => t.id === state.logs.activeTab)) {
+    state.logs.activeTab = "files";
+  }
+  if (els.logsTabs) {
+    els.logsTabs.innerHTML = tabs
+      .map(
+        (t) =>
+          `<button type="button" class="logs-tab${
+            t.id === state.logs.activeTab ? " active" : ""
+          }" data-logs-tab="${t.id}">${escapeHtml(t.label)}</button>`
+      )
+      .join("");
+  }
+  renderLogsTabBody();
+}
+
+function renderLogsTabBody() {
+  const data = state.logs.round;
+  if (!data || !els.logsTabBody) return;
+  const info = data.roundInfo || {};
+  const tab = state.logs.activeTab;
+  if (tab === "files") {
+    const files = data.files || [];
+    els.logsTabBody.innerHTML = `
+      <div class="logs-files-panel">
+        <div class="logs-files">
+          ${files
+            .map(
+              (f) => `<label class="logs-file">
+                <input type="checkbox" data-log-file="${escapeHtml(f.rel)}" ${
+                state.logs.selectedFiles[f.rel] ? "checked" : ""
+              } />
+                <span>${escapeHtml(f.label)}</span>
+              </label>`
+            )
+            .join("")}
+        </div>
+        <div class="logs-files-actions">
+          <button type="button" class="tool-btn" id="logs-files-all">все</button>
+          <button type="button" class="tool-btn" id="logs-files-none">снять</button>
+          <button type="button" class="tool-btn logs-generate-btn" id="logs-generate">сгенерировать</button>
+        </div>
+      </div>
+    `;
+    return;
+  }
+  if (tab === "manifest") {
+    els.logsTabBody.innerHTML = `
+      <table class="logs-table">
+        <thead><tr><th>ckey</th><th>имя</th><th>роль</th><th>antag</th></tr></thead>
+        <tbody>
+          ${(info.manifest || [])
+            .map(
+              (row) => `<tr>
+                <td>${escapeHtml(row.ckey)}</td>
+                <td>${escapeHtml(row.name)}</td>
+                <td class="dept-${escapeHtml(row.dept || "other")}">${escapeHtml(
+                  row.role
+                )}${
+                  row.latejoin ? '<span class="logs-late">LATE</span>' : ""
+                }</td>
+                <td>${escapeHtml(row.antag || "")}</td>
+              </tr>`
+            )
+            .join("")}
+        </tbody>
+      </table>
+    `;
+    return;
+  }
+  if (tab === "antags") {
+    const objectives = info.objectives || {};
+    els.logsTabBody.innerHTML = (info.antagonists || [])
+      .map((a) => {
+        const objs = objectives[String(a.ckey).toLowerCase()] || [];
+        return `<div class="logs-antag-card">
+          <div><span class="antag-role">${escapeHtml(
+            a.role
+          )}</span> · ${escapeHtml(a.ckey)} / ${escapeHtml(a.char)}</div>
+          ${objs
+            .map(
+              (o) =>
+                `<div class="panel-note">${escapeHtml(o.result)} — ${escapeHtml(
+                  o.text
+                )}</div>`
+            )
+            .join("")}
+        </div>`;
+      })
+      .join("");
+    return;
+  }
+  if (tab === "ghost") {
+    els.logsTabBody.innerHTML = (info.ghost_roles || [])
+      .map(
+        (g) => `<div class="logs-ghost-card">
+          <span class="ghost-role">${escapeHtml(g.role)}</span>
+          · ${escapeHtml(g.ckey)} / ${escapeHtml(g.name)}
+        </div>`
+      )
+      .join("");
+    return;
+  }
+  if (tab === "inventory") {
+    if (!data.inventory) {
+      els.logsTabBody.innerHTML =
+        '<p class="panel-note">Загрузка inventory…</p>';
+      ensureLogsInventory().then((inv) => {
+        if (!inv) {
+          els.logsTabBody.innerHTML =
+            '<p class="panel-note">Inventory недоступен</p>';
+          return;
+        }
+        renderLogsRound();
+      });
+      return;
+    }
+    const inv = data.inventory || {};
+    const snaps = Object.values(inv.snapshots || {});
+    const events = inv.events || [];
+    els.logsTabBody.innerHTML = `
+      <p class="panel-note">Карта: ${escapeHtml(inv.map || "—")} · snapshots ${
+      inv.snapshot_count || 0
+    } · events ${inv.event_count || 0}${
+      inv.events_omitted
+        ? ` (показано ${events.length}, скрыто ${inv.events_omitted})`
+        : ""
+    }</p>
+      <h3>Snapshots</h3>
+      <table class="logs-table">
+        <thead><tr><th>ckey</th><th>char</th><th>reason</th><th>items</th></tr></thead>
+        <tbody>
+          ${snaps
+            .map(
+              (s) => `<tr>
+                <td>${escapeHtml(s.ckey)}</td>
+                <td>${escapeHtml(s.char)}</td>
+                <td>${escapeHtml(s.reason)}</td>
+                <td>${escapeHtml(
+                  (s.items || []).map((i) => i.name).join(", ")
+                )}</td>
+              </tr>`
+            )
+            .join("")}
+        </tbody>
+      </table>
+      <h3>Events</h3>
+      <table class="logs-table">
+        <thead><tr><th>time</th><th>ckey</th><th>action</th><th>item</th></tr></thead>
+        <tbody>
+          ${events
+            .slice(0, 200)
+            .map(
+              (e) => `<tr>
+                <td>${escapeHtml(String(e.timestamp || "").slice(11))}</td>
+                <td>${escapeHtml(e.ckey)}</td>
+                <td>${escapeHtml(e.action)}</td>
+                <td>${escapeHtml(e.item_name || "")}</td>
+              </tr>`
+            )
+            .join("")}
+        </tbody>
+      </table>
+    `;
+  }
+}
+
+async function generateLogsView() {
+  const files = Object.keys(state.logs.selectedFiles).filter(
+    (rel) => state.logs.selectedFiles[rel]
+  );
+  if (!files.length) {
+    toast("Выбери хотя бы один файл", true);
+    return;
+  }
+  const genBtn = document.getElementById("logs-generate");
+  if (genBtn) genBtn.disabled = true;
+  toast("Склейка логов…");
+  try {
+    const result = await window.launcher.logsGenerate(files);
+    if (!result?.ok) {
+      toast(result?.error || "Ошибка generate", true);
+      return;
+    }
+    state.logs.jobId = result.jobId;
+    state.logs.viewMeta = result;
+    state.logs.page = 0;
+    state.logs.lines = [];
+    state.logs.enabledCats = null;
+    showLogsReader(true);
+    await loadLogsMore();
+  } finally {
+    if (genBtn) genBtn.disabled = false;
+  }
+}
+
+async function loadLogsMore() {
+  if (!state.logs.jobId || state.logs.loadingMore) return;
+  const meta = state.logs.viewMeta || {};
+  const pages = meta.pages || 1;
+  const nextPage = (state.logs.page || 0) + 1;
+  if (nextPage > pages && state.logs.page > 0) return;
+
+  state.logs.loadingMore = true;
+  try {
+    const data = await window.launcher.logsView({
+      jobId: state.logs.jobId,
+      page: nextPage,
+      all: false,
+    });
+    if (!data?.ok) {
+      toast(data?.error || "Ошибка view", true);
+      return;
+    }
+    state.logs.page = data.page;
+    state.logs.viewMeta = {
+      ...(state.logs.viewMeta || {}),
+      total: data.total,
+      pages: data.pages,
+      truncated: data.truncated,
+      rawTotal: data.rawTotal,
+      pageSize: data.pageSize,
+      offset: data.offset,
+    };
+    const chunk = data.lines || [];
+    if (nextPage === 1) {
+      state.logs.lines = chunk;
+      state.logs.actors = data.actors || { ckeys: [], names: [] };
+      state.logs.enabledCats = null;
+    } else {
+      state.logs.lines = state.logs.lines.concat(chunk);
+      // merge actors lightly
+      const actors = data.actors || { ckeys: [], names: [] };
+      const ckeys = new Set([
+        ...(state.logs.actors.ckeys || []),
+        ...(actors.ckeys || []),
+      ]);
+      const names = new Set([
+        ...(state.logs.actors.names || []),
+        ...(actors.names || []),
+      ]);
+      state.logs.actors = {
+        ckeys: [...ckeys],
+        names: [...names],
+      };
+    }
+    renderLogsViewPage();
+    const loaded = state.logs.lines.length;
+    const total = data.total || loaded;
+    toast(
+      loaded >= total
+        ? `Загружено ${loaded} строк`
+        : `Загружено ${loaded} / ${total}`
+    );
+  } finally {
+    state.logs.loadingMore = false;
+  }
+}
+
+function beautifyLogLine(raw) {
+  let ts = "";
+  let type = "";
+  let body = raw;
+  const m = raw.match(/^\[([0-9-]{10} [0-9:.]{8,})]\s+([A-Z0-9-]+):\s*(.*)$/);
+  if (m) {
+    ts = m[1];
+    type = m[2];
+    body = m[3];
+  }
+  const timeOnly = ts ? ts.slice(11) : "";
+  let html = "";
+  if (timeOnly) html += `<span class="log-ts">[${escapeHtml(timeOnly)}]</span> `;
+  let catId = "";
+  if (type) {
+    const cls = classifyLog(type, body);
+    catId = cls.cat;
+    html += `<span class="log-type log-type-${escapeHtml(
+      catId
+    )}">[${escapeHtml(cls.label)}]</span> `;
+  }
+  let b = escapeHtml(body);
+  b = b.replace(
+    /'\(([^)]+)\)'\/\(([^)]+)\)/g,
+    (_m, ck, nm) =>
+      `<span class="ckey" data-ckey="${escapeHtml(
+        ck.toLowerCase()
+      )}">${escapeHtml(ck)}</span> / <span class="char-name" data-name="${escapeHtml(
+        nm.toLowerCase()
+      )}">${escapeHtml(nm)}</span>`
+  );
+  b = b.replace(
+    /\(mob_\d+\)/gi,
+    (tag) => `<span class="mob-tag">${escapeHtml(tag)}</span>`
+  );
+  b = b.replace(
+    /\([^()]*\(\d+,\d+,\d+\)\)/g,
+    (z) => `<span class="zone">${escapeHtml(z)}</span>`
+  );
+  b = b
+    .split(/(<[^>]+>)/g)
+    .map((p) =>
+      p.startsWith("<")
+        ? p
+        : p.replace(
+            /&quot;([^&]*)&quot;/g,
+            (_m, t) => `"<span class="speech">${t}</span>"`
+          )
+    )
+    .join("");
+  html += `<span class="log-text">${b}</span>`;
+  return { html, catId, hasNoKey: /\*no key\*/i.test(raw) };
+}
+
+function ensureCatSet(cats) {
+  if (!state.logs.enabledCats) {
+    state.logs.enabledCats = {};
+    for (const cat of cats) {
+      state.logs.enabledCats[cat] = true;
+    }
+  } else {
+    for (const cat of cats) {
+      if (state.logs.enabledCats[cat] === undefined) {
+        state.logs.enabledCats[cat] = true;
+      }
+    }
+  }
+}
+
+function renderLogsViewPage() {
+  const meta = state.logs.viewMeta || {};
+  const loaded = state.logs.lines.length || 0;
+  const total = meta.total || loaded;
+  if (els.logsViewMeta) {
+    els.logsViewMeta.textContent = `Строк: ${loaded}${
+      loaded < total ? ` / ${total}` : ""
+    }${meta.truncated ? ` (truncated from ${meta.rawTotal}+)` : ""}`;
+  }
+  if (els.logsLoadMore) {
+    els.logsLoadMore.hidden = !(loaded < total);
+    els.logsLoadMore.disabled = Boolean(state.logs.loadingMore);
+  }
+
+  const parsed = (state.logs.lines || []).map((raw) => {
+    const b = beautifyLogLine(raw);
+    return { raw, ...b };
+  });
+  const cats = [
+    ...new Set(parsed.map((p) => p.catId).filter(Boolean)),
+  ].sort();
+  ensureCatSet(cats);
+  if (els.logsCatToggles) {
+    els.logsCatToggles.innerHTML = cats
+      .map((cat) => {
+        const on = state.logs.enabledCats[cat] !== false;
+        return `<button type="button" class="logs-cat-btn${
+          on ? "" : " off"
+        }" data-log-cat="${escapeHtml(cat)}" title="${escapeHtml(
+          LOG_CAT_TITLES[cat] || cat
+        )}">${escapeHtml(cat)}</button>`;
+      })
+      .join("");
+  }
+
+  if (els.logsLines) {
+    const frag = document.createDocumentFragment();
+    const wrap = document.createElement("div");
+    wrap.innerHTML = parsed
+      .map(
+        (p, i) =>
+          `<div class="log-line" data-idx="${i}" data-cat="${escapeHtml(
+            p.catId || ""
+          )}" data-has-nokey="${p.hasNoKey ? "1" : "0"}">${p.html}</div>`
+      )
+      .join("");
+    while (wrap.firstChild) frag.appendChild(wrap.firstChild);
+    els.logsLines.innerHTML = "";
+    els.logsLines.appendChild(frag);
+  }
+  applyLogsFilters();
+}
+
+function splitFilterList(value) {
+  return String(value || "")
+    .trim()
+    .split(/[\s,]+/)
+    .map((s) => s.toLowerCase())
+    .filter(Boolean);
+}
+
+function applyLogsFilters() {
+  if (!els.logsLines) return;
+  const hideNoKey = document.getElementById("logs-filter-nokey")?.checked;
+  const ckeys = splitFilterList(
+    document.getElementById("logs-filter-ckeys")?.value
+  );
+  const names = splitFilterList(
+    document.getElementById("logs-filter-names")?.value
+  ).map((n) => n.replace(/,/g, ""));
+  const search = String(
+    document.getElementById("logs-filter-search")?.value || ""
+  )
+    .trim()
+    .toLowerCase();
+  const showCkey = document.getElementById("logs-show-ckey")?.checked;
+  const showNames = document.getElementById("logs-show-names")?.checked;
+  const showZone = document.getElementById("logs-show-zone")?.checked;
+  const hideMob = document.getElementById("logs-hide-mobtag")?.checked;
+
+  els.logsLines.querySelectorAll(".log-line").forEach((line, idx) => {
+    const raw = state.logs.lines[idx] || "";
+    const cat = line.dataset.cat || "";
+    let visible = true;
+    if (hideNoKey && line.dataset.hasNokey === "1") visible = false;
+    if (visible && cat && state.logs.enabledCats?.[cat] === false) {
+      visible = false;
+    }
+    if (visible && ckeys.length) {
+      visible = ckeys.some((ck) => raw.toLowerCase().includes(`'(${ck})'`));
+    }
+    if (visible && names.length) {
+      const low = raw.toLowerCase();
+      visible = names.some((nm) => low.includes(`/(${nm})`));
+    }
+    if (visible && search) {
+      visible = raw.toLowerCase().includes(search);
+    }
+    line.hidden = !visible;
+  });
+
+  els.logsLines.querySelectorAll(".ckey").forEach((e) => {
+    e.style.display = showCkey ? "" : "none";
+  });
+  els.logsLines.querySelectorAll(".char-name").forEach((e) => {
+    e.style.display = showNames ? "" : "none";
+  });
+  els.logsLines.querySelectorAll(".zone").forEach((e) => {
+    e.style.display = showZone ? "" : "none";
+  });
+  els.logsLines.querySelectorAll(".mob-tag").forEach((e) => {
+    e.style.display = hideMob ? "none" : "";
+  });
+}
+
+function bindLogsUi() {
+  const onTreeChange = async (level) => {
+    const patch = { year: els.logsYear.value };
+    if (level === "month" || level === "day" || level === "round") {
+      patch.month = els.logsMonth.value;
+    } else {
+      patch.month = "";
+      patch.day = "";
+      patch.round = "";
+    }
+    if (level === "day" || level === "round") {
+      patch.day = els.logsDay.value;
+    } else if (level === "month") {
+      patch.day = "";
+      patch.round = "";
+    }
+    if (level === "round") {
+      patch.round = els.logsRound.value;
+    } else if (level === "day") {
+      patch.round = "";
+    }
+    showLogsReader(false);
+    state.logs.jobId = null;
+    await loadLogsTree(patch);
+  };
+
+  els.logsYear?.addEventListener("change", () => onTreeChange("year"));
+  els.logsMonth?.addEventListener("change", () => onTreeChange("month"));
+  els.logsDay?.addEventListener("change", () => onTreeChange("day"));
+  els.logsRound?.addEventListener("change", () => onTreeChange("round"));
+  els.logsResetLatest?.addEventListener("click", () => resetLogsToLatest());
+  els.logsLoadMore?.addEventListener("click", () => loadLogsMore());
+  els.logsLines?.addEventListener("scroll", () => {
+    if (!els.logsLines || state.logs.loadingMore) return;
+    const nearBottom =
+      els.logsLines.scrollTop + els.logsLines.clientHeight >=
+      els.logsLines.scrollHeight - 120;
+    const meta = state.logs.viewMeta || {};
+    const loaded = state.logs.lines.length || 0;
+    if (nearBottom && loaded < (meta.total || 0)) {
+      loadLogsMore();
+    }
+  });
+
+  els.logsTabs?.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-logs-tab]");
+    if (!btn) return;
+    state.logs.activeTab = btn.dataset.logsTab;
+    renderLogsRound();
+  });
+
+  els.logsTabBody?.addEventListener("change", (event) => {
+    const input = event.target.closest("[data-log-file]");
+    if (!input) return;
+    state.logs.selectedFiles[input.dataset.logFile] = input.checked;
+  });
+
+  els.logsTabBody?.addEventListener("click", async (event) => {
+    if (event.target.closest("#logs-files-all")) {
+      for (const rel of Object.keys(state.logs.selectedFiles)) {
+        state.logs.selectedFiles[rel] = true;
+      }
+      renderLogsTabBody();
+      return;
+    }
+    if (event.target.closest("#logs-files-none")) {
+      for (const rel of Object.keys(state.logs.selectedFiles)) {
+        state.logs.selectedFiles[rel] = false;
+      }
+      renderLogsTabBody();
+      return;
+    }
+    if (event.target.closest("#logs-generate")) {
+      await generateLogsView();
+    }
+  });
+
+  document.getElementById("logs-cat-all")?.addEventListener("click", () => {
+    if (!state.logs.enabledCats) return;
+    for (const key of Object.keys(state.logs.enabledCats)) {
+      state.logs.enabledCats[key] = true;
+    }
+    renderLogsViewPage();
+  });
+  document.getElementById("logs-cat-none")?.addEventListener("click", () => {
+    if (!state.logs.enabledCats) return;
+    for (const key of Object.keys(state.logs.enabledCats)) {
+      state.logs.enabledCats[key] = false;
+    }
+    renderLogsViewPage();
+  });
+  els.logsCatToggles?.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-log-cat]");
+    if (!btn || !state.logs.enabledCats) return;
+    const cat = btn.dataset.logCat;
+    state.logs.enabledCats[cat] = !state.logs.enabledCats[cat];
+    renderLogsViewPage();
+  });
+
+  [
+    "logs-filter-nokey",
+    "logs-filter-ckeys",
+    "logs-filter-names",
+    "logs-filter-search",
+    "logs-show-ckey",
+    "logs-show-names",
+    "logs-show-zone",
+    "logs-hide-mobtag",
+  ].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("input", applyLogsFilters);
+    el.addEventListener("change", applyLogsFilters);
+  });
+
+  els.logsLines?.addEventListener("click", (event) => {
+    const ck = event.target.closest(".ckey");
+    if (ck) {
+      const inp = document.getElementById("logs-filter-ckeys");
+      const value = (ck.dataset.ckey || ck.textContent || "").toLowerCase();
+      const parts = splitFilterList(inp.value);
+      if (!parts.includes(value)) {
+        parts.push(value);
+        inp.value = parts.join(" ");
+        applyLogsFilters();
+      }
+      return;
+    }
+    const nm = event.target.closest(".char-name");
+    if (nm) {
+      const inp = document.getElementById("logs-filter-names");
+      const value = (nm.dataset.name || nm.textContent || "").toLowerCase();
+      const parts = String(inp.value || "")
+        .split(/\s*,\s*/)
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
+      if (!parts.includes(value)) {
+        parts.push(value);
+        inp.value = parts.join(", ");
+        applyLogsFilters();
+      }
+    }
+  });
+}
+
+function setMusicReady(ready, meta = {}) {
+  state.music.ready = ready === true;
+  state.music.canModerate = Boolean(meta.canModerate);
+  state.music.ckey = meta.ckey || null;
+  if (els.navMusic) {
+    els.navMusic.hidden = !state.music.ready;
+  }
+  if (!state.music.ready && state.view === "music") {
+    setView("home");
+  }
+}
+
+function musicApiHostLabel() {
+  try {
+    return state.music.apiUrl ? new URL(state.music.apiUrl).host : "?";
+  } catch {
+    return state.music.apiUrl || "?";
+  }
+}
+
+function formatMusicDuration(sec) {
+  const s = Math.max(0, Math.round(Number(sec) || 0));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${String(r).padStart(2, "0")}`;
+}
+
+function formatMusicSize(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+async function refreshMusicAccess() {
+  if (els.navMusic) els.navMusic.hidden = true;
+  state.music.ready = false;
+  state.music.canModerate = false;
+  state.music.ckey = null;
+  if (!state.music.configured || !state.auth.user) {
+    setMusicReady(false);
+    if (els.musicStatusNote) {
+      els.musicStatusNote.textContent = state.music.configured
+        ? "Войди через Discord"
+        : "Music API не настроен";
+    }
+    return { ok: false, error: state.music.configured ? "unauthorized" : "not_configured" };
+  }
+  try {
+    const me = await window.launcher.musicMe();
+    if (!me?.ok) {
+      setMusicReady(false);
+      const err = me?.error || "нет доступа";
+      if (els.musicStatusNote) {
+        const msg =
+          err === "ckey_not_linked"
+            ? "Привяжи ckey в аккаунте"
+            : me?.message || err;
+        els.musicStatusNote.textContent = `${musicApiHostLabel()}: ${msg}`;
+      }
+      return { ok: false, error: err, message: me?.message };
+    }
+    setMusicReady(true, {
+      ckey: me.ckey,
+      canModerate: me.canModerate,
+    });
+    if (els.musicStatusNote) {
+      const mod = me.canModerate ? " · руководство" : "";
+      els.musicStatusNote.textContent = `${musicApiHostLabel()} · ${me.ckey}${mod}`;
+    }
+    return { ok: true, ckey: me.ckey };
+  } catch (error) {
+    setMusicReady(false);
+    const message = error?.message || "ошибка music API";
+    if (els.musicStatusNote) {
+      els.musicStatusNote.textContent = `${musicApiHostLabel()}: ${message}`;
+    }
+    return { ok: false, error: message };
+  }
+}
+
+function musicAccessToast(result) {
+  if (!result || result.ok) return;
+  if (result.error === "ckey_not_linked") {
+    toast("Discord не привязан к ckey (хотя в аккаунте может отображаться). Обнови вход.", true);
+    return;
+  }
+  if (result.error === "unauthorized" || result.error === "session_expired") {
+    toast("Сначала войди через Discord", true);
+    return;
+  }
+  if (result.error === "not_configured") {
+    toast("Music API не настроен", true);
+    return;
+  }
+  toast(result.message || result.error || "Нет доступа к музыке", true);
+}
+
+async function openMusic() {
+  if (!state.music.configured) {
+    toast("Music API не настроен", true);
+    if (state.view === "music") setView("home");
+    return;
+  }
+  if (!state.auth.user) {
+    toast("Сначала войди через Discord", true);
+    if (state.view === "music") setView("home");
+    return;
+  }
+  const access =
+    state.music.ready && state.music.ckey
+      ? { ok: true }
+      : await refreshMusicAccess();
+  if (!access?.ok) {
+    musicAccessToast(access);
+    if (state.view === "music") setView("home");
+    return;
+  }
+  await loadMusicTab();
+  await refreshMusicCounts();
+}
+
+function setMusicTab(tab) {
+  state.music.tab = tab === "public" || tab === "playlist" ? tab : "mine";
+  document.querySelectorAll("[data-music-tab]").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.musicTab === state.music.tab);
+  });
+}
+
+function musicIcon(name) {
+  const icons = {
+    play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>',
+    pause: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3v14H7zm7 0h3v14h-3z"/></svg>',
+    plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>',
+    check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.2 16.6 5 12.4l1.4-1.4 2.8 2.8L17.6 5.4 19 6.8z"/></svg>',
+    up: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.4 14.6 12 10l4.6 4.6 1.4-1.4L12 7.2 6 13.2z"/></svg>',
+    down: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.4 9.4 12 14l4.6-4.6 1.4 1.4L12 16.8 6 10.8z"/></svg>',
+    eye: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6c5 0 9 4.5 10 6-1 1.5-5 6-10 6S3 13.5 2 12c1-1.5 5-6 10-6zm0 2.5A3.5 3.5 0 1 0 12 15a3.5 3.5 0 0 0 0-6.5z"/></svg>',
+    eyeOff:
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.3 2.3 21 20l-1.4 1.4-3.1-3.1A11.5 11.5 0 0 1 12 18c-5 0-9-4.5-10-6 0.4-.6 1.4-2 2.9-3.3L1.9 3.7 3.3 2.3zM12 6c5 0 9 4.5 10 6-.3.5-1 1.5-2.1 2.7L16.5 11A3.5 3.5 0 0 0 12 8.5c-.3 0-.6 0-.9.1L8.7 6.2C9.7 6.1 10.8 6 12 6z"/></svg>',
+    trash:
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4h6l1 2h4v2H4V6h4l1-2zm1 6h2v8h-2v-8zm4 0h2v8h-2v-8zM7 10h2v8H7v-8z"/></svg>',
+  };
+  return icons[name] || "";
+}
+
+function musicIconBtn(act, icon, title, extraClass = "") {
+  return `<button type="button" class="music-icon-btn ${extraClass}" data-music-act="${act}" title="${escapeHtml(
+    title
+  )}">${musicIcon(icon)}</button>`;
+}
+
+function renderMusicCounts() {
+  const c = state.music.counts || {};
+  if (els.musicCountMine) els.musicCountMine.textContent = String(c.mine || 0);
+  if (els.musicCountPublic)
+    els.musicCountPublic.textContent = String(c.public || 0);
+  if (els.musicCountPlaylist)
+    els.musicCountPlaylist.textContent = String(c.playlist || 0);
+}
+
+async function refreshMusicCounts() {
+  try {
+    const [mine, pub, pl] = await Promise.all([
+      window.launcher.musicLibrary({ kind: "mine", q: "" }),
+      window.launcher.musicLibrary({ kind: "public", q: "" }),
+      window.launcher.musicPlaylistGet(),
+    ]);
+    state.music.counts = {
+      mine: mine?.ok && Array.isArray(mine.tracks) ? mine.tracks.length : 0,
+      public: pub?.ok && Array.isArray(pub.tracks) ? pub.tracks.length : 0,
+      playlist:
+        pl?.ok && Array.isArray(pl.trackIds)
+          ? pl.trackIds.length
+          : Array.isArray(pl?.tracks)
+            ? pl.tracks.length
+            : 0,
+    };
+    if (pl?.ok && Array.isArray(pl.trackIds)) {
+      state.music.playlistIds = pl.trackIds;
+    }
+  } catch {
+    // keep previous counts
+  }
+  renderMusicCounts();
+}
+
+async function loadMusicTab() {
+  if (state.music.loading) return;
+  state.music.loading = true;
+  if (els.musicBody) {
+    els.musicBody.innerHTML = `<p class="panel-note">Загрузка…</p>`;
+  }
+  try {
+    if (state.music.tab === "playlist") {
+      const pl = await window.launcher.musicPlaylistGet();
+      if (!pl?.ok) {
+        toast(pl?.error || "Не удалось загрузить плейлист", true);
+        state.music.playlistIds = [];
+        state.music.playlistTracks = [];
+      } else {
+        state.music.playlistIds = Array.isArray(pl.trackIds) ? pl.trackIds : [];
+        state.music.playlistTracks = Array.isArray(pl.tracks) ? pl.tracks : [];
+      }
+      state.music.tracks = state.music.playlistTracks;
+      state.music.counts.playlist = state.music.playlistIds.length;
+    } else {
+      const kind = state.music.tab === "public" ? "public" : "mine";
+      const lib = await window.launcher.musicLibrary({
+        kind,
+        q: state.music.q || "",
+      });
+      if (!lib?.ok) {
+        toast(lib?.error || "Не удалось загрузить библиотеку", true);
+        state.music.tracks = [];
+      } else {
+        state.music.tracks = Array.isArray(lib.tracks) ? lib.tracks : [];
+        if (!state.music.q) {
+          state.music.counts[kind] = state.music.tracks.length;
+        }
+      }
+      if (!state.music.playlistIds.length) {
+        const pl = await window.launcher.musicPlaylistGet();
+        if (pl?.ok && Array.isArray(pl.trackIds)) {
+          state.music.playlistIds = pl.trackIds;
+          state.music.counts.playlist = pl.trackIds.length;
+        }
+      }
+    }
+    renderMusicCounts();
+    renderMusicBody();
+  } finally {
+    state.music.loading = false;
+  }
+}
+
+function renderMusicBody() {
+  if (!els.musicBody) return;
+  const tracks = state.music.tracks || [];
+  if (!tracks.length) {
+    els.musicBody.innerHTML = `<p class="panel-note">Пусто</p>`;
+    return;
+  }
+  const isPlaylist = state.music.tab === "playlist";
+  const isMine = state.music.tab === "mine";
+  const playlistSet = new Set(state.music.playlistIds.map(String));
+  const playingId = state.music.nowPlaying?.id
+    ? String(state.music.nowPlaying.id)
+    : "";
+
+  els.musicBody.innerHTML = tracks
+    .map((t) => {
+      const id = String(t.id || "");
+      const inPl = playlistSet.has(id);
+      const canDelete =
+        isMine ||
+        (state.music.canModerate && state.music.tab === "public") ||
+        (isPlaylist &&
+          (String(t.ckey || "").toLowerCase() ===
+            String(state.music.ckey || "").toLowerCase() ||
+            state.music.canModerate));
+      const showVis = isMine;
+      const vis = t.visibility === "private" ? "private" : "public";
+      const isPlaying = playingId === id;
+      return `<article class="music-row${
+        isPlaying ? " is-playing" : ""
+      }" data-track-id="${escapeHtml(id)}">
+        <div class="music-row-main">
+          ${musicIconBtn("play", "play", "Слушать", "music-play")}
+          <div class="music-meta">
+            <div class="music-title">${escapeHtml(t.name || "Track")}</div>
+            <div class="music-sub">${escapeHtml(t.author || "Unknown")}${
+        t.ckey ? ` · ${escapeHtml(t.ckey)}` : ""
+      } · ${formatMusicDuration(t.duration_seconds)} · ${formatMusicSize(
+        t.size_bytes
+      )}${vis === "private" ? " · private" : ""}</div>
+          </div>
+        </div>
+        <div class="music-row-actions">
+          ${
+            isPlaylist
+              ? `${musicIconBtn("pl-up", "up", "Выше")}
+                 ${musicIconBtn("pl-down", "down", "Ниже")}
+                 ${musicIconBtn("pl-remove", "check", "Убрать из плейлиста", "is-active")}`
+              : musicIconBtn(
+                  inPl ? "pl-remove" : "pl-add",
+                  inPl ? "check" : "plus",
+                  inPl ? "В плейлисте" : "В плейлист",
+                  inPl ? "is-active" : ""
+                )
+          }
+          ${
+            showVis
+              ? musicIconBtn(
+                  "toggle-vis",
+                  vis === "private" ? "eye" : "eyeOff",
+                  vis === "private" ? "В общую" : "Скрыть"
+                )
+              : ""
+          }
+          ${
+            canDelete && (isMine || state.music.canModerate)
+              ? musicIconBtn("delete", "trash", "Удалить", "danger")
+              : ""
+          }
+        </div>
+      </article>`;
+    })
+    .join("");
+}
+
+function setMusicPlayerUi({ title, sub, enabled } = {}) {
+  if (els.musicPlayerTitle && title != null) {
+    els.musicPlayerTitle.textContent = title;
+  }
+  if (els.musicPlayerSub && sub != null) {
+    els.musicPlayerSub.textContent = sub;
+  }
+  if (els.musicPlayerToggle) {
+    els.musicPlayerToggle.disabled = !enabled;
+  }
+  if (els.musicPlayerSeek) {
+    els.musicPlayerSeek.disabled = !enabled;
+  }
+}
+
+function syncMusicPlayerToggleIcon() {
+  if (!els.musicPlayerToggle || !els.musicAudio) return;
+  const paused = els.musicAudio.paused;
+  els.musicPlayerToggle.innerHTML = musicIcon(paused ? "play" : "pause");
+  els.musicPlayerToggle.title = paused ? "Play" : "Pause";
+  els.musicPlayerToggle.classList.toggle("is-playing", !paused);
+}
+
+function syncMusicPlayerProgress() {
+  const audio = els.musicAudio;
+  if (!audio || !els.musicPlayerSeek) return;
+  const dur = Number(audio.duration);
+  const cur = Number(audio.currentTime) || 0;
+  if (els.musicPlayerCur) {
+    els.musicPlayerCur.textContent = formatMusicDuration(cur);
+  }
+  if (els.musicPlayerDur) {
+    els.musicPlayerDur.textContent = Number.isFinite(dur)
+      ? formatMusicDuration(dur)
+      : "0:00";
+  }
+  if (!els.musicPlayerSeek.dataset.dragging) {
+    const max = Number(els.musicPlayerSeek.max) || 1000;
+    els.musicPlayerSeek.value = String(
+      Number.isFinite(dur) && dur > 0 ? Math.round((cur / dur) * max) : 0
+    );
+  }
+}
+
+async function playMusicTrack(trackId) {
+  if (!els.musicAudio) return;
+  const track = (state.music.tracks || []).find(
+    (t) => String(t.id) === String(trackId)
+  );
+  toast("Загрузка трека…");
+  setMusicPlayerUi({
+    title: track?.name || "Загрузка…",
+    sub: track
+      ? `${track.author || "Unknown"}${track.ckey ? ` · ${track.ckey}` : ""}`
+      : "…",
+    enabled: false,
+  });
+  const res = await window.launcher.musicLocalStream(trackId);
+  if (!res?.ok) {
+    toast(res?.error || "Не удалось воспроизвести", true);
+    setMusicPlayerUi({
+      title: "Нет трека",
+      sub: "ошибка загрузки",
+      enabled: false,
+    });
+    return;
+  }
+  state.music.nowPlaying = track
+    ? { id: track.id, name: track.name, author: track.author, ckey: track.ckey }
+    : { id: trackId };
+  setMusicPlayerUi({
+    title: state.music.nowPlaying.name || "Track",
+    sub: `${state.music.nowPlaying.author || "Unknown"}${
+      state.music.nowPlaying.ckey ? ` · ${state.music.nowPlaying.ckey}` : ""
+    }`,
+    enabled: true,
+  });
+  els.musicAudio.src = res.fileUrl || res.path;
+  try {
+    await els.musicAudio.play();
+    toast("");
+    syncMusicPlayerToggleIcon();
+    renderMusicBody();
+  } catch (error) {
+    toast(error?.message || "Воспроизведение заблокировано", true);
+  }
+}
+
+async function savePlaylistIds(nextIds) {
+  const res = await window.launcher.musicPlaylistPut(nextIds);
+  if (!res?.ok) {
+    toast(res?.error || "Не удалось сохранить плейлист", true);
+    return false;
+  }
+  state.music.playlistIds = Array.isArray(res.trackIds)
+    ? res.trackIds
+    : nextIds;
+  state.music.counts.playlist = state.music.playlistIds.length;
+  if (Array.isArray(res.tracks)) {
+    state.music.playlistTracks = res.tracks;
+  }
+  renderMusicCounts();
+  return true;
+}
+
+async function handleMusicAction(act, trackId) {
+  const id = String(trackId || "");
+  if (!id) return;
+  if (act === "play") {
+    await playMusicTrack(id);
+    return;
+  }
+  if (act === "pl-add") {
+    if (state.music.playlistIds.map(String).includes(id)) {
+      toast("Уже в плейлисте");
+      return;
+    }
+    const next = [...state.music.playlistIds.map(String), id];
+    if (await savePlaylistIds(next)) {
+      toast("Добавлено в плейлист");
+      renderMusicBody();
+    }
+    return;
+  }
+  if (act === "pl-remove") {
+    const next = state.music.playlistIds.map(String).filter((x) => x !== id);
+    if (await savePlaylistIds(next)) {
+      toast("Убрано из плейлиста");
+      if (state.music.tab === "playlist") {
+        await loadMusicTab();
+      } else {
+        renderMusicBody();
+      }
+    }
+    return;
+  }
+  if (act === "pl-up" || act === "pl-down") {
+    const ids = state.music.playlistIds.map(String);
+    const idx = ids.indexOf(id);
+    if (idx < 0) return;
+    const swap = act === "pl-up" ? idx - 1 : idx + 1;
+    if (swap < 0 || swap >= ids.length) return;
+    const tmp = ids[idx];
+    ids[idx] = ids[swap];
+    ids[swap] = tmp;
+    if (await savePlaylistIds(ids)) {
+      await loadMusicTab();
+    }
+    return;
+  }
+  if (act === "toggle-vis") {
+    const track = (state.music.tracks || []).find((t) => String(t.id) === id);
+    const nextVis =
+      track?.visibility === "private" ? "public" : "private";
+    const res = await window.launcher.musicPatch({
+      trackId: id,
+      patch: { visibility: nextVis },
+    });
+    if (!res?.ok) {
+      toast(res?.error || "Не удалось изменить видимость", true);
+      return;
+    }
+    toast(nextVis === "public" ? "В общей библиотеке" : "Скрыто");
+    await loadMusicTab();
+    return;
+  }
+  if (act === "delete") {
+    if (!window.confirm("Удалить трек безвозвратно?")) return;
+    const res = await window.launcher.musicDelete(id);
+    if (!res?.ok) {
+      toast(res?.error || "Не удалось удалить", true);
+      return;
+    }
+    state.music.playlistIds = state.music.playlistIds
+      .map(String)
+      .filter((x) => x !== id);
+    toast("Трек удалён");
+    await loadMusicTab();
+    await refreshMusicCounts();
+  }
+}
+
+function bindMusicUi() {
+  document.querySelectorAll("[data-music-tab]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      setMusicTab(btn.dataset.musicTab);
+      await loadMusicTab();
+    });
+  });
+
+  let searchTimer = null;
+  els.musicSearch?.addEventListener("input", () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(async () => {
+      state.music.q = String(els.musicSearch.value || "").trim();
+      if (state.music.tab !== "playlist") {
+        await loadMusicTab();
+      } else {
+        const q = state.music.q.toLowerCase();
+        state.music.tracks = (state.music.playlistTracks || []).filter((t) => {
+          if (!q) return true;
+          return (
+            String(t.name || "")
+              .toLowerCase()
+              .includes(q) ||
+            String(t.author || "")
+              .toLowerCase()
+              .includes(q) ||
+            String(t.ckey || "")
+              .toLowerCase()
+              .includes(q)
+          );
+        });
+        renderMusicBody();
+      }
+    }, 280);
+  });
+
+  els.musicUploadBtn?.addEventListener("click", async () => {
+    if (!state.music.ready) {
+      toast("Нужен Discord и ckey", true);
+      return;
+    }
+    els.musicUploadBtn.disabled = true;
+    toast("Выбери файл…");
+    try {
+      const res = await window.launcher.musicPickAndUpload({
+        visibility: "public",
+      });
+      if (res?.cancelled) {
+        toast("Отменено");
+        return;
+      }
+      if (!res?.ok) {
+        toast(res?.error || "Загрузка не удалась", true);
+        return;
+      }
+      toast("Загружено в общую");
+      setMusicTab("mine");
+      await loadMusicTab();
+      await refreshMusicCounts();
+    } catch (error) {
+      toast(error?.message || "Ошибка загрузки", true);
+    } finally {
+      els.musicUploadBtn.disabled = false;
+    }
+  });
+
+  els.musicBody?.addEventListener("click", async (event) => {
+    const btn = event.target.closest("[data-music-act]");
+    if (!btn) return;
+    const row = btn.closest("[data-track-id]");
+    if (!row) return;
+    btn.disabled = true;
+    try {
+      await handleMusicAction(btn.dataset.musicAct, row.dataset.trackId);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  if (els.musicAudio) {
+    els.musicAudio.volume = (Number(els.musicPlayerVol?.value) || 85) / 100;
+    els.musicAudio.addEventListener("timeupdate", syncMusicPlayerProgress);
+    els.musicAudio.addEventListener("loadedmetadata", syncMusicPlayerProgress);
+    els.musicAudio.addEventListener("play", syncMusicPlayerToggleIcon);
+    els.musicAudio.addEventListener("pause", syncMusicPlayerToggleIcon);
+    els.musicAudio.addEventListener("ended", () => {
+      syncMusicPlayerToggleIcon();
+      syncMusicPlayerProgress();
+    });
+  }
+
+  els.musicPlayerToggle?.addEventListener("click", async () => {
+    if (!els.musicAudio?.src) return;
+    try {
+      if (els.musicAudio.paused) await els.musicAudio.play();
+      else els.musicAudio.pause();
+    } catch (error) {
+      toast(error?.message || "Воспроизведение заблокировано", true);
+    }
+  });
+
+  els.musicPlayerSeek?.addEventListener("pointerdown", () => {
+    els.musicPlayerSeek.dataset.dragging = "1";
+  });
+  const endSeekDrag = () => {
+    if (!els.musicPlayerSeek || !els.musicAudio) return;
+    delete els.musicPlayerSeek.dataset.dragging;
+    const dur = Number(els.musicAudio.duration);
+    if (!Number.isFinite(dur) || dur <= 0) return;
+    const max = Number(els.musicPlayerSeek.max) || 1000;
+    els.musicAudio.currentTime =
+      (Number(els.musicPlayerSeek.value) / max) * dur;
+  };
+  els.musicPlayerSeek?.addEventListener("pointerup", endSeekDrag);
+  els.musicPlayerSeek?.addEventListener("change", endSeekDrag);
+
+  els.musicPlayerVol?.addEventListener("input", () => {
+    if (!els.musicAudio) return;
+    els.musicAudio.volume = (Number(els.musicPlayerVol.value) || 0) / 100;
+  });
+}
+
 async function boot() {
   initParallax();
   setUpdateProgress(0, false);
@@ -1940,6 +3631,10 @@ async function boot() {
     configured: Boolean(data.auth?.configured),
     user: data.auth?.user || null,
   };
+  state.logs.configured = Boolean(data.logs?.configured);
+  state.logs.apiUrl = data.logs?.apiUrl || null;
+  state.music.configured = Boolean(data.music?.configured);
+  state.music.apiUrl = data.music?.apiUrl || null;
   state.selectedId =
     data.prefs?.lastServerId && data.servers[data.prefs.lastServerId]
       ? data.prefs.lastServerId
@@ -1954,6 +3649,16 @@ async function boot() {
   bindUi();
   syncSelectionUI();
   await Promise.all([runProbes(), loadNews(), loadStatus()]);
+  if (state.auth.user && state.logs.configured) {
+    await refreshLogsStaff();
+  } else {
+    setLogsStaff(false);
+  }
+  if (state.auth.user && state.music.configured) {
+    await refreshMusicAccess();
+  } else {
+    setMusicReady(false);
+  }
   checkForLauncherUpdate();
   loadVirusTotalLink();
 }

@@ -29,6 +29,25 @@ const {
   fetchPlayerCard,
   parseAuthProtocolUrl,
 } = require("./authClient");
+const {
+  loadLogsConfig,
+  logsMe,
+  logsTree,
+  logsRound,
+  logsGenerate,
+  logsView,
+} = require("./logsClient");
+const {
+  loadMusicConfig,
+  musicMe,
+  musicLibrary,
+  musicPlaylistGet,
+  musicPlaylistPut,
+  musicDeleteTrack,
+  musicPatchTrack,
+  musicUpload,
+  musicDownloadToTemp,
+} = require("./musicClient");
 
 const dnsLookup = dns.promises.lookup;
 try {
@@ -38,6 +57,8 @@ try {
 }
 const PROTOCOL = "orbitalis";
 const AUTH_CONFIG = loadAuthConfig();
+const LOGS_CONFIG = loadLogsConfig();
+const MUSIC_CONFIG = loadMusicConfig();
 
 let mainWindow = null;
 
@@ -1008,6 +1029,14 @@ ipcMain.handle("get-bootstrap", async () => {
       user: auth.user,
       offline: Boolean(auth.offline),
     },
+    logs: {
+      configured: Boolean(LOGS_CONFIG.logsApiUrl),
+      apiUrl: LOGS_CONFIG.logsApiUrl || null,
+    },
+    music: {
+      configured: Boolean(MUSIC_CONFIG.musicApiUrl),
+      apiUrl: MUSIC_CONFIG.musicApiUrl || null,
+    },
   };
 });
 
@@ -1909,4 +1938,144 @@ ipcMain.handle("fetch-player", async () => {
       error: error?.message ? error.message : String(error),
     };
   }
+});
+
+async function withLogsAuth(handler) {
+  if (!LOGS_CONFIG.logsApiUrl) {
+    return { ok: false, error: "Logs API URL не настроен" };
+  }
+  const token = readSessionToken(app.getPath("userData"));
+  if (!token) {
+    return { ok: false, error: "unauthorized" };
+  }
+  try {
+    const result = await handler(LOGS_CONFIG.logsApiUrl, token);
+    if (result?.expired) {
+      clearSessionToken(app.getPath("userData"));
+      sendToRenderer("auth-changed", { user: null, error: "session_expired" });
+      return { ok: false, error: "session_expired" };
+    }
+    return result;
+  } catch (error) {
+    return {
+      ok: false,
+      error: error?.message ? error.message : String(error),
+    };
+  }
+}
+
+ipcMain.handle("logs-me", async () => withLogsAuth(logsMe));
+
+ipcMain.handle("logs-tree", async (_event, query) =>
+  withLogsAuth((url, token) => logsTree(url, token, query || {}))
+);
+
+ipcMain.handle("logs-round", async (_event, query) => {
+  if (!query?.year || !query?.month || !query?.day || !query?.round) {
+    return { ok: false, error: "year, month, day, round required" };
+  }
+  return withLogsAuth((url, token) => logsRound(url, token, query));
+});
+
+ipcMain.handle("logs-generate", async (_event, files) => {
+  if (!Array.isArray(files) || !files.length) {
+    return { ok: false, error: "No files selected" };
+  }
+  return withLogsAuth((url, token) => logsGenerate(url, token, files));
+});
+
+ipcMain.handle("logs-view", async (_event, payload) => {
+  if (!payload?.jobId) {
+    return { ok: false, error: "jobId required" };
+  }
+  return withLogsAuth((url, token) =>
+    logsView(url, token, payload.jobId, payload.page || 1, {
+      all: Boolean(payload.all),
+    })
+  );
+});
+
+async function withMusicAuth(handler) {
+  if (!MUSIC_CONFIG.musicApiUrl) {
+    return { ok: false, error: "Music API URL не настроен" };
+  }
+  const token = readSessionToken(app.getPath("userData"));
+  if (!token) {
+    return { ok: false, error: "unauthorized" };
+  }
+  try {
+    const result = await handler(MUSIC_CONFIG.musicApiUrl, token);
+    if (result?.expired) {
+      clearSessionToken(app.getPath("userData"));
+      sendToRenderer("auth-changed", { user: null, error: "session_expired" });
+      return { ok: false, error: "session_expired" };
+    }
+    return result;
+  } catch (error) {
+    return {
+      ok: false,
+      error: error?.message ? error.message : String(error),
+    };
+  }
+}
+
+ipcMain.handle("music-me", async () => withMusicAuth(musicMe));
+
+ipcMain.handle("music-library", async (_event, payload) =>
+  withMusicAuth((url, token) =>
+    musicLibrary(url, token, payload?.kind || "mine", payload?.q || "")
+  )
+);
+
+ipcMain.handle("music-playlist-get", async () =>
+  withMusicAuth(musicPlaylistGet)
+);
+
+ipcMain.handle("music-playlist-put", async (_event, trackIds) => {
+  if (!Array.isArray(trackIds)) {
+    return { ok: false, error: "trackIds required" };
+  }
+  return withMusicAuth((url, token) => musicPlaylistPut(url, token, trackIds));
+});
+
+ipcMain.handle("music-delete", async (_event, trackId) => {
+  if (!trackId) return { ok: false, error: "trackId required" };
+  return withMusicAuth((url, token) => musicDeleteTrack(url, token, trackId));
+});
+
+ipcMain.handle("music-patch", async (_event, payload) => {
+  if (!payload?.trackId) return { ok: false, error: "trackId required" };
+  return withMusicAuth((url, token) =>
+    musicPatchTrack(url, token, payload.trackId, payload.patch || {})
+  );
+});
+
+ipcMain.handle("music-pick-and-upload", async (_event, meta = {}) => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: "Выбери аудиофайл",
+    buttonLabel: "Загрузить",
+    properties: ["openFile"],
+    filters: [
+      { name: "Audio", extensions: ["mp3", "ogg", "wav", "flac", "m4a", "aac"] },
+      { name: "Все файлы", extensions: ["*"] },
+    ],
+  });
+  if (result.canceled || !result.filePaths?.[0]) {
+    return { ok: false, cancelled: true };
+  }
+  const filePath = result.filePaths[0];
+  return withMusicAuth((url, token) =>
+    musicUpload(url, token, {
+      filePath,
+      fileName: path.basename(filePath),
+      trackName: meta.trackName || path.basename(filePath, path.extname(filePath)),
+      trackAuthor: meta.trackAuthor || "Unknown artist",
+      visibility: meta.visibility || "public",
+    })
+  );
+});
+
+ipcMain.handle("music-local-stream", async (_event, trackId) => {
+  if (!trackId) return { ok: false, error: "trackId required" };
+  return withMusicAuth((url, token) => musicDownloadToTemp(url, token, trackId));
 });

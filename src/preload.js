@@ -31,4 +31,20 @@ contextBridge.exposeInMainWorld("launcher", {
     ipcRenderer.on("auth-changed", listener);
     return () => ipcRenderer.removeListener("auth-changed", listener);
   },
+  logsMe: () => ipcRenderer.invoke("logs-me"),
+  logsTree: (query) => ipcRenderer.invoke("logs-tree", query || {}),
+  logsRound: (query) => ipcRenderer.invoke("logs-round", query),
+  logsGenerate: (files) => ipcRenderer.invoke("logs-generate", files),
+  logsView: (payload) => ipcRenderer.invoke("logs-view", payload),
+  musicMe: () => ipcRenderer.invoke("music-me"),
+  musicLibrary: (payload) => ipcRenderer.invoke("music-library", payload || {}),
+  musicPlaylistGet: () => ipcRenderer.invoke("music-playlist-get"),
+  musicPlaylistPut: (trackIds) =>
+    ipcRenderer.invoke("music-playlist-put", trackIds),
+  musicDelete: (trackId) => ipcRenderer.invoke("music-delete", trackId),
+  musicPatch: (payload) => ipcRenderer.invoke("music-patch", payload),
+  musicPickAndUpload: (meta) =>
+    ipcRenderer.invoke("music-pick-and-upload", meta || {}),
+  musicLocalStream: (trackId) =>
+    ipcRenderer.invoke("music-local-stream", trackId),
 });

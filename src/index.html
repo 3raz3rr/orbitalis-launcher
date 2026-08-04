@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; connect-src 'self' https://auth.hornyjail.space https://devassets.hornyjail.space http://proxy.hornyjail.space:* https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: blob: https://cdn.discordapp.com https://media.discordapp.net https://*.discordapp.com https://*.discordapp.net https://cdn.jsdelivr.net https://devassets.hornyjail.space http://proxy.hornyjail.space:*;"
+      content="default-src 'self'; connect-src 'self' https://auth.hornyjail.space https://logs.hornyjail.space https://music.hornyjail.space https://devassets.hornyjail.space http://proxy.hornyjail.space:* http://127.0.0.1:* http://localhost:* https://cdn.jsdelivr.net; media-src 'self' file: https://music.hornyjail.space blob: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: blob: https://cdn.discordapp.com https://media.discordapp.net https://*.discordapp.com https://*.discordapp.net https://cdn.jsdelivr.net https://devassets.hornyjail.space http://proxy.hornyjail.space:*;"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Orbitalis</title>
@@ -25,6 +25,12 @@
           <button type="button" class="menu_button" data-view="news">
             новости
             <span id="nav-news-badge" class="nav-badge" hidden>0</span>
+          </button>
+          <button type="button" class="menu_button" id="nav-logs" data-view="logs" hidden>
+            логи
+          </button>
+          <button type="button" class="menu_button" id="nav-music" data-view="music" hidden>
+            музыка
           </button>
 
           <div id="auth-box" class="auth-box">
@@ -182,6 +188,144 @@
         <section id="view-account" class="view account-view" hidden>
           <div id="account-body" class="account-body">
             <p class="panel-note">Войди через Discord, чтобы увидеть карточку.</p>
+          </div>
+        </section>
+
+        <section id="view-logs" class="view logs-view" hidden>
+          <div class="logs-shell">
+            <div class="logs-toolbar">
+              <div class="logs-toolbar-title">
+                <h2>Логи</h2>
+                <p class="panel-note" id="logs-status-note">Только для персонала</p>
+              </div>
+              <div class="logs-selectors" id="logs-selectors">
+                <label class="logs-sel">
+                  <span>Год</span>
+                  <select id="logs-year"></select>
+                </label>
+                <label class="logs-sel">
+                  <span>Месяц</span>
+                  <select id="logs-month"></select>
+                </label>
+                <label class="logs-sel">
+                  <span>День</span>
+                  <select id="logs-day"></select>
+                </label>
+                <label class="logs-sel">
+                  <span>Раунд</span>
+                  <select id="logs-round"></select>
+                </label>
+                <button type="button" class="tool-btn" id="logs-reset-latest" title="Открыть самый свежий раунд">
+                  свежий
+                </button>
+              </div>
+            </div>
+
+            <div id="logs-round-panel" class="logs-round-panel" hidden>
+              <div class="logs-round-header" id="logs-round-header"></div>
+              <div class="logs-tabs" id="logs-tabs" role="tablist"></div>
+              <div id="logs-tab-body" class="logs-tab-body"></div>
+            </div>
+
+            <div id="logs-reader" class="logs-reader" hidden>
+              <div class="logs-reader-head">
+                <div class="logs-reader-meta-row">
+                  <p class="panel-note" id="logs-view-meta"></p>
+                  <button type="button" class="tool-btn" id="logs-load-more" hidden>ещё</button>
+                </div>
+                <div class="logs-cat-bar">
+                  <div class="logs-cat-actions">
+                    <button type="button" class="tool-btn" id="logs-cat-all">все типы</button>
+                    <button type="button" class="tool-btn" id="logs-cat-none">сбросить типы</button>
+                  </div>
+                  <div id="logs-cat-toggles" class="logs-cat-toggles"></div>
+                </div>
+              </div>
+              <div class="logs-view-layout">
+                <aside class="logs-filters">
+                  <h3>Фильтры</h3>
+                  <label class="logs-check">
+                    <input type="checkbox" id="logs-filter-nokey" checked />
+                    Скрыть *no key*
+                  </label>
+                  <label class="logs-field">
+                    <span>ckey</span>
+                    <input type="text" id="logs-filter-ckeys" placeholder="alice, bob" autocomplete="off" />
+                  </label>
+                  <label class="logs-field">
+                    <span>имя</span>
+                    <input type="text" id="logs-filter-names" placeholder="Alice Smith" autocomplete="off" />
+                  </label>
+                  <label class="logs-field">
+                    <span>поиск</span>
+                    <input type="text" id="logs-filter-search" placeholder="текст строки" autocomplete="off" />
+                  </label>
+                  <label class="logs-check">
+                    <input type="checkbox" id="logs-show-ckey" checked />
+                    Показывать ckey
+                  </label>
+                  <label class="logs-check">
+                    <input type="checkbox" id="logs-show-names" checked />
+                    Показывать имена
+                  </label>
+                  <label class="logs-check">
+                    <input type="checkbox" id="logs-show-zone" checked />
+                    Показывать зоны
+                  </label>
+                  <label class="logs-check">
+                    <input type="checkbox" id="logs-hide-mobtag" />
+                    Скрыть mob_tag
+                  </label>
+                </aside>
+                <div id="logs-lines" class="logs-lines"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="view-music" class="view music-view" hidden>
+          <div class="music-shell">
+            <div class="music-toolbar">
+              <div>
+                <h2>Музыка</h2>
+                <p class="panel-note" id="music-status-note">Войди и привяжи ckey</p>
+              </div>
+              <div class="music-toolbar-actions">
+                <input type="search" id="music-search" class="music-search" placeholder="поиск…" />
+                <button type="button" class="tool-btn" id="music-upload-btn">загрузить</button>
+              </div>
+            </div>
+            <div class="music-tabs" role="tablist">
+              <button type="button" class="logs-tab active" data-music-tab="mine">
+                Моя <span class="music-tab-count" id="music-count-mine">0</span>
+              </button>
+              <button type="button" class="logs-tab" data-music-tab="public">
+                Общая <span class="music-tab-count" id="music-count-public">0</span>
+              </button>
+              <button type="button" class="logs-tab" data-music-tab="playlist">
+                Плейлист <span class="music-tab-count" id="music-count-playlist">0</span>
+              </button>
+            </div>
+            <div id="music-body" class="music-body"></div>
+            <div class="music-player" id="music-player">
+              <button type="button" class="music-icon-btn music-player-toggle" id="music-player-toggle" title="Play/Pause" disabled>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+              </button>
+              <div class="music-player-info">
+                <div class="music-player-title" id="music-player-title">Нет трека</div>
+                <div class="music-player-sub" id="music-player-sub">выбери трек из списка</div>
+              </div>
+              <div class="music-player-seek-wrap">
+                <span id="music-player-cur">0:00</span>
+                <input type="range" id="music-player-seek" class="music-player-seek" min="0" max="1000" value="0" step="1" disabled />
+                <span id="music-player-dur">0:00</span>
+              </div>
+              <div class="music-player-vol-wrap" title="Громкость">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h3l4 3V7L7 10H4zm11.5 2a2.5 2.5 0 0 0-1.5-2.3v4.6a2.5 2.5 0 0 0 1.5-2.3zm-1.5-6.1v1.6a4.5 4.5 0 0 1 0 8.9v1.6a6 6 0 0 0 0-12.1z"/></svg>
+                <input type="range" id="music-player-vol" class="music-player-vol" min="0" max="100" value="85" step="1" />
+              </div>
+              <audio id="music-audio" preload="none" hidden></audio>
+            </div>
           </div>
         </section>
       </main>
