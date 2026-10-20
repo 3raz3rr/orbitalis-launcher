@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const http = require("http");
 const https = require("https");
-const dns = require("dns");
+const { lookupIpv4First } = require("./hostResolve");
 
 function loadMusicConfig() {
   try {
@@ -12,16 +12,6 @@ function loadMusicConfig() {
   } catch {
     return { musicApiUrl: "" };
   }
-}
-
-function lookupIpv4First(hostname, options, callback) {
-  dns.lookup(hostname, { family: 4, all: false }, (error, address, family) => {
-    if (!error) {
-      callback(null, address, family);
-      return;
-    }
-    dns.lookup(hostname, options || {}, callback);
-  });
 }
 
 function requestJson(
@@ -112,7 +102,7 @@ function wrapResult(status, data) {
 async function musicMe(apiUrl, token) {
   const { status, data } = await requestJson(
     `${apiUrl.replace(/\/$/, "")}/api/v1/me`,
-    { headers: authHeaders(token), timeoutMs: 20000 }
+    { headers: authHeaders(token), timeoutMs: 10000 }
   );
   return wrapResult(status, data);
 }
@@ -126,7 +116,7 @@ async function musicLibrary(apiUrl, token, kind, q = "") {
     `${apiUrl.replace(/\/$/, "")}/api/v1/library/${pathKind}${
       qs ? `?${qs}` : ""
     }`,
-    { headers: authHeaders(token), timeoutMs: 60000 }
+    { headers: authHeaders(token), timeoutMs: 12000 }
   );
   return wrapResult(status, data);
 }
@@ -134,7 +124,7 @@ async function musicLibrary(apiUrl, token, kind, q = "") {
 async function musicPlaylistGet(apiUrl, token) {
   const { status, data } = await requestJson(
     `${apiUrl.replace(/\/$/, "")}/api/v1/playlist`,
-    { headers: authHeaders(token), timeoutMs: 30000 }
+    { headers: authHeaders(token), timeoutMs: 12000 }
   );
   return wrapResult(status, data);
 }
@@ -146,7 +136,7 @@ async function musicPlaylistPut(apiUrl, token, trackIds) {
       method: "PUT",
       headers: authHeaders(token),
       body: { trackIds },
-      timeoutMs: 30000,
+      timeoutMs: 12000,
     }
   );
   return wrapResult(status, data);
@@ -155,7 +145,7 @@ async function musicPlaylistPut(apiUrl, token, trackIds) {
 async function musicDeleteTrack(apiUrl, token, trackId) {
   const { status, data } = await requestJson(
     `${apiUrl.replace(/\/$/, "")}/api/v1/tracks/${encodeURIComponent(trackId)}`,
-    { method: "DELETE", headers: authHeaders(token), timeoutMs: 30000 }
+    { method: "DELETE", headers: authHeaders(token), timeoutMs: 15000 }
   );
   return wrapResult(status, data);
 }
@@ -167,7 +157,29 @@ async function musicPatchTrack(apiUrl, token, trackId, patch) {
       method: "PATCH",
       headers: authHeaders(token),
       body: patch,
-      timeoutMs: 30000,
+      timeoutMs: 12000,
+    }
+  );
+  return wrapResult(status, data);
+}
+
+async function musicImportUrl(
+  apiUrl,
+  token,
+  { url, trackName, trackAuthor, visibility }
+) {
+  const { status, data } = await requestJson(
+    `${apiUrl.replace(/\/$/, "")}/api/v1/import-url`,
+    {
+      method: "POST",
+      headers: authHeaders(token),
+      body: {
+        url,
+        track_name: trackName || undefined,
+        track_author: trackAuthor || undefined,
+        visibility: visibility === "private" ? "private" : "public",
+      },
+      timeoutMs: 300000,
     }
   );
   return wrapResult(status, data);
@@ -305,6 +317,7 @@ module.exports = {
   musicPlaylistPut,
   musicDeleteTrack,
   musicPatchTrack,
+  musicImportUrl,
   musicUpload,
   musicDownloadToTemp,
 };

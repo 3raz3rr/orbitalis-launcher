@@ -2,8 +2,8 @@ const fs = require("fs");
 const path = require("path");
 const http = require("http");
 const https = require("https");
-const dns = require("dns");
 const { safeStorage } = require("electron");
+const { lookupIpv4First } = require("./hostResolve");
 
 function loadAuthConfig() {
   return JSON.parse(
@@ -54,17 +54,6 @@ function clearSessionToken(userData) {
   }
 }
 
-function lookupIpv4First(hostname, options, callback) {
-  // Prefer IPv4: broken/missing IPv6 routes often cause long timeouts.
-  dns.lookup(hostname, { family: 4, all: false }, (error, address, family) => {
-    if (!error) {
-      callback(null, address, family);
-      return;
-    }
-    dns.lookup(hostname, options || {}, callback);
-  });
-}
-
 function friendlyAuthError(error, authApiUrl) {
   let host = "auth.hornyjail.space";
   try {
@@ -94,7 +83,7 @@ function friendlyAuthError(error, authApiUrl) {
   return msg || "Ошибка входа";
 }
 
-function requestJson(
+function requestJsonOnce(
   url,
   { method = "GET", headers = {}, body, timeoutMs = 20000 } = {}
 ) {
@@ -113,7 +102,7 @@ function requestJson(
         lookup: lookupIpv4First,
         headers: {
           Accept: "application/json",
-          "User-Agent": "OrbitalisLauncher/0.5.12",
+          "User-Agent": "OrbitalisLauncher",
           ...(payload
             ? {
                 "Content-Type": "application/json",
@@ -150,6 +139,26 @@ function requestJson(
   });
 }
 
+async function requestJson(url, options = {}) {
+  const retries = Number(options.retries);
+  const maxAttempts = Number.isFinite(retries) ? Math.max(0, retries) + 1 : 1;
+  let lastError = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await requestJsonOnce(url, options);
+    } catch (error) {
+      lastError = error;
+      const msg = String(error?.message || error || "");
+      const retryable = /timeout|ECONNRESET|EPIPE|ENETUNREACH|EHOSTUNREACH/i.test(
+        msg
+      );
+      if (!retryable || attempt >= maxAttempts) throw error;
+      await new Promise((r) => setTimeout(r, 250 * attempt));
+    }
+  }
+  throw lastError || new Error("request_failed");
+}
+
 async function startDiscordLogin(authApiUrl) {
   try {
     const { status, data } = await requestJson(
@@ -165,10 +174,14 @@ async function startDiscordLogin(authApiUrl) {
   }
 }
 
-async function fetchMe(authApiUrl, token) {
+async function fetchMe(authApiUrl, token, { timeoutMs = 10000 } = {}) {
   const { status, data } = await requestJson(
     `${authApiUrl.replace(/\/$/, "")}/auth/me`,
-    { headers: { Authorization: `Bearer ${token}` } }
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      timeoutMs,
+      retries: 1,
+    }
   );
   if (status === 401) {
     return { ok: false, expired: true };
@@ -190,24 +203,47 @@ async function logoutRemote(authApiUrl, token) {
   }
 }
 
+function normalizeStatusKind(kind) {
+  if (kind === "dev") {
+    return "dev";
+  }
+  if (kind === "grim") {
+    return "grim";
+  }
+  return "main";
+}
+
 async function fetchServerStatus(authApiUrl, kind) {
-  const safeKind = kind === "dev" ? "dev" : "main";
-  const { status, data } = await requestJson(
-    `${authApiUrl.replace(/\/$/, "")}/api/status/${safeKind}`
-  );
-  if (status < 200 || status >= 300 || !data?.ok) {
+  const safeKind = normalizeStatusKind(kind);
+  try {
+    const { status, data } = await requestJson(
+      `${authApiUrl.replace(/\/$/, "")}/api/status/${safeKind}`,
+      { timeoutMs: 10000, retries: 1 }
+    );
+    if (status < 200 || status >= 300 || !data?.ok) {
+      return {
+        ok: false,
+        kind: safeKind,
+        error: data?.error || `status_failed (${status})`,
+      };
+    }
+    return data;
+  } catch (error) {
     return {
       ok: false,
       kind: safeKind,
-      error: data?.error || `status_failed (${status})`,
+      error: error?.message ? error.message : String(error),
     };
   }
-  return data;
 }
 
-async function fetchPlayerCard(authApiUrl, token) {
+async function fetchPlayerCard(authApiUrl, token, kind) {
+  const requested = normalizeStatusKind(kind);
+  // Grimrock has no player DB in auth — always Orbitalis (main/dev).
+  const safeKind = requested === "grim" ? "main" : requested;
+  const query = new URLSearchParams({ kind: safeKind, game: "orbitalis" });
   const { status, data } = await requestJson(
-    `${authApiUrl.replace(/\/$/, "")}/api/me/player`,
+    `${authApiUrl.replace(/\/$/, "")}/api/me/player?${query.toString()}`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
   if (status === 401) {
@@ -216,10 +252,16 @@ async function fetchPlayerCard(authApiUrl, token) {
   if (status < 200 || status >= 300 || !data?.ok) {
     return {
       ok: false,
+      kind: safeKind,
+      game: "orbitalis",
       error: data?.error || `player_failed (${status})`,
     };
   }
-  return data;
+  return {
+    ...data,
+    kind: data.kind || safeKind,
+    game: data.game || "orbitalis",
+  };
 }
 
 function parseAuthProtocolUrl(urlString) {

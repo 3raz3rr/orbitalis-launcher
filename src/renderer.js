@@ -8,7 +8,15 @@ const state = {
   newsShown: {},
   selectedId: "mainDirect",
   recommendedId: "mainDirect",
+  recommendedByGame: {},
+  worldEntered: false,
   probing: false,
+  gameSession: {
+    running: false,
+    launching: false,
+    startedAt: null,
+    count: 0,
+  },
   view: "home",
   byondInstalled: false,
   byondPath: null,
@@ -45,10 +53,12 @@ const state = {
     tracks: [],
     playlistIds: [],
     playlistTracks: [],
-    counts: { mine: 0, public: 0, playlist: 0 },
+    counts: { mine: 0, public: 0 },
     nowPlaying: null,
     q: "",
     loading: false,
+    collectionSynced: false,
+    loadGen: 0,
   },
 };
 
@@ -58,6 +68,12 @@ const els = {
   playMain: document.getElementById("play-main"),
   playLabel: document.getElementById("play-label"),
   playSub: document.getElementById("play-sub"),
+  lobbyTitle: document.getElementById("lobby-title"),
+  lobbySubtitle: document.getElementById("lobby-subtitle"),
+  brandLogo: document.getElementById("brand-logo"),
+  statusCardTitle: document.getElementById("status-card-title"),
+  viewWorlds: document.getElementById("view-worlds"),
+  worldsBack: document.getElementById("worlds-back"),
   lastLine: document.getElementById("last-line"),
   routeNote: document.getElementById("route-note"),
   routeDropdown: document.getElementById("route-dropdown"),
@@ -92,6 +108,8 @@ const els = {
   logsStatusNote: document.getElementById("logs-status-note"),
   musicStatusNote: document.getElementById("music-status-note"),
   musicSearch: document.getElementById("music-search"),
+  musicImportUrl: document.getElementById("music-import-url"),
+  musicImportBtn: document.getElementById("music-import-btn"),
   musicUploadBtn: document.getElementById("music-upload-btn"),
   musicBody: document.getElementById("music-body"),
   musicAudio: document.getElementById("music-audio"),
@@ -104,7 +122,6 @@ const els = {
   musicPlayerVol: document.getElementById("music-player-vol"),
   musicCountMine: document.getElementById("music-count-mine"),
   musicCountPublic: document.getElementById("music-count-public"),
-  musicCountPlaylist: document.getElementById("music-count-playlist"),
   logsYear: document.getElementById("logs-year"),
   logsMonth: document.getElementById("logs-month"),
   logsDay: document.getElementById("logs-day"),
@@ -293,29 +310,196 @@ function openLauncherLink(url) {
   window.launcher.openExternal(url);
 }
 
+function gameIdOf(server) {
+  if (!server) {
+    return "orbitalis";
+  }
+  if (server.game) {
+    return server.game;
+  }
+  return server.kind === "grim" ? "grimrock" : "orbitalis";
+}
+
+function gameIdFromSelection() {
+  return gameIdOf(state.servers[state.selectedId]);
+}
+
 function statusKindFromSelection() {
   const server = state.servers[state.selectedId];
-  return server?.kind === "dev" ? "dev" : "main";
+  if (server?.kind === "dev") {
+    return "dev";
+  }
+  if (server?.kind === "grim") {
+    return "grim";
+  }
+  return "main";
+}
+
+function formatElapsedMs(ms) {
+  const total = Math.max(0, Math.floor(Number(ms) / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) {
+    return `${h}ч ${m}м`;
+  }
+  if (m > 0) {
+    return `${m}м ${String(s).padStart(2, "0")}с`;
+  }
+  return `${s}с`;
+}
+
+function applyGameSession(session) {
+  state.gameSession = session || {
+    running: false,
+    launching: false,
+    startedAt: null,
+    count: 0,
+  };
+  syncSelectionUI();
+}
+
+function syncPresenceContext() {
+  if (!window.launcher.setPresenceContext) {
+    return;
+  }
+  window.launcher.setPresenceContext({
+    game: gameIdFromSelection(),
+    view: state.worldEntered ? "home" : "worlds",
+  });
+}
+
+function grimrockWorldActive() {
+  return state.worldEntered && gameIdFromSelection() === "grimrock";
+}
+
+function pauseMusicPlayback() {
+  try {
+    els.musicAudio?.pause();
+  } catch {
+    // ignore
+  }
+}
+
+function syncMusicNavVisibility() {
+  const show = Boolean(
+    state.music.configured && state.auth.user && !grimrockWorldActive()
+  );
+  if (els.navMusic) {
+    els.navMusic.hidden = !show;
+  }
+  if (!show) {
+    pauseMusicPlayback();
+  }
+  return show;
+}
+
+function applyGameTheme() {
+  const game = gameIdFromSelection();
+  const isGrim =
+    game === "grimrock" && (state.view === "home" || state.view === "account");
+  document.body.classList.toggle("theme-grimrock", isGrim);
+  if (els.lobbyTitle) {
+    els.lobbyTitle.textContent = isGrim ? "GRIMROCK" : "ORBITALIS";
+  }
+  if (els.lobbySubtitle) {
+    els.lobbySubtitle.textContent = isGrim ? "ROGUETOWN" : "SPACE STATION";
+  }
+  if (els.brandLogo) {
+    els.brandLogo.hidden = isGrim;
+  }
+  if (els.statusCardTitle) {
+    els.statusCardTitle.textContent = isGrim
+      ? "Сейчас у ворот"
+      : "Сейчас на станции";
+  }
+  syncMusicNavVisibility();
+}
+
+function enterWorld(gameId) {
+  selectGame(gameId);
+  state.worldEntered = true;
+  setView("home");
+  applyGameTheme();
+  syncSelectionUI();
+  syncPresenceContext();
+  loadStatus();
+}
+
+function backToWorlds() {
+  state.worldEntered = false;
+  setView("worlds");
+  applyGameTheme();
+  syncPresenceContext();
+}
+
+function defaultServerForGame(gameId) {
+  return gameId === "grimrock" ? "grimDirect" : "mainDirect";
+}
+
+function pickServerForGame(gameId) {
+  const saved = state.prefs.lastServerByGame?.[gameId];
+  if (saved && state.servers[saved] && gameIdOf(state.servers[saved]) === gameId) {
+    return saved;
+  }
+  const rec = state.recommendedByGame?.[gameId];
+  if (rec && state.servers[rec] && gameIdOf(state.servers[rec]) === gameId) {
+    return rec;
+  }
+  const last = state.prefs.lastServerId;
+  if (last && state.servers[last] && gameIdOf(state.servers[last]) === gameId) {
+    return last;
+  }
+  return defaultServerForGame(gameId);
+}
+
+function selectGame(gameId) {
+  const prevKind = statusKindFromSelection();
+  if (gameIdFromSelection() === gameId) {
+    applyGameTheme();
+    syncSelectionUI();
+    return;
+  }
+  state.selectedId = pickServerForGame(gameId);
+  const lastServerByGame = {
+    ...(state.prefs.lastServerByGame || {}),
+    [gameId]: state.selectedId,
+  };
+  state.prefs.lastServerByGame = lastServerByGame;
+  window.launcher.savePrefs({
+    lastServerId: state.selectedId,
+    lastServerByGame,
+  });
+  applyGameTheme();
+  syncSelectionUI();
+  if (statusKindFromSelection() !== prevKind) {
+    loadStatus();
+    if (state.view === "account") {
+      loadAccount();
+    }
+  }
 }
 
 function setDot(id, probe) {
   document.querySelectorAll(`[data-dot="${id}"]`).forEach((dot) => {
     dot.classList.remove("online", "offline", "pending");
-    if (!probe || state.probing) {
+    if (!probe) {
       dot.classList.add("pending");
       return;
     }
+    // Keep last known status visible while a refresh runs.
     dot.classList.add(probe.ok ? "online" : "offline");
   });
   const msEl = document.getElementById(`ms-${id}`);
   if (msEl) {
-    msEl.textContent = state.probing ? "…" : formatMs(probe);
+    msEl.textContent = formatMs(probe);
   }
 }
 
 function renderStatus() {
   const kind = statusKindFromSelection();
-  const kindLabel = kind === "dev" ? "DEV" : "основной";
+  const kindLabel =
+    kind === "dev" ? "DEV" : kind === "grim" ? "grimrock" : "основной";
   if (els.statusKind) {
     els.statusKind.textContent = kindLabel;
   }
@@ -323,7 +507,8 @@ function renderStatus() {
   if (kindBadgeEl) {
     kindBadgeEl.textContent = kindLabel;
     kindBadgeEl.classList.toggle("is-dev", kind === "dev");
-    kindBadgeEl.classList.toggle("is-main", kind !== "dev");
+    kindBadgeEl.classList.toggle("is-grim", kind === "grim");
+    kindBadgeEl.classList.toggle("is-main", kind === "main");
   }
 
   const setLine = (html) => {
@@ -338,11 +523,38 @@ function renderStatus() {
     return;
   }
 
+  const statusErrorLabel = (error) => {
+    const code = String(error || "");
+    if (code === "status_unavailable") return "сервер не отдаёт статус";
+    if (code === "topic_locked") return "сервер закрыл Topic";
+    if (code === "topic_bad_key") return "неверный comms key";
+    if (code === "dns_failed") return "не удалось найти хост";
+    if (code === "status_failed") return "статус недоступен";
+    return code || "статус недоступен";
+  };
+
+  const cell = (label, value, valueClass = "") =>
+    `<div class="stat">
+      <span class="stat-k">${escapeHtml(label)}</span>
+      <span class="stat-v${valueClass ? ` ${valueClass}` : ""}">${value}</span>
+    </div>`;
+
   if (!payload.ok || !payload.status) {
+    const emptyCells =
+      kind === "grim"
+        ? [cell("Онлайн", "—"), cell("Карта", "—"), cell("Раунд", "—")]
+        : [
+            cell("Онлайн", "—"),
+            cell("На станции", "—"),
+            cell("Уровень угрозы", "—"),
+            cell("Карта", "—"),
+            cell("Раунд", "—"),
+            cell("Сторителлер", "—"),
+          ];
     setLine(
-      payload.error
-        ? `Статус недоступен: ${escapeHtml(payload.error)}`
-        : "Статус недоступен"
+      `<div class="status-strip">${emptyCells.join("")}</div><p class="status-empty-note">${escapeHtml(
+        statusErrorLabel(payload.error)
+      )}</p>`
     );
     return;
   }
@@ -362,28 +574,41 @@ function renderStatus() {
   const round = roundParts.length ? roundParts.join(" · ") : "-";
   const story = s.storyteller || "-";
 
-  const cell = (label, value, valueClass = "") =>
-    `<div class="stat">
-      <span class="stat-k">${escapeHtml(label)}</span>
-      <span class="stat-v${valueClass ? ` ${valueClass}` : ""}">${value}</span>
-    </div>`;
-
   const closedBadge =
     s.enter === false
       ? `<span class="status-closed-badge">вход закрыт</span>`
       : "";
 
-  const cells = [
-    cell("Онлайн", escapeHtml(players)),
-    cell("На станции", escapeHtml(playing)),
-    cell(
-      "Уровень угрозы",
-      `<span class="sec-${escapeHtml(sec)}">${escapeHtml(sec)}</span>`
-    ),
-    cell("Карта", escapeHtml(map)),
-    cell("Раунд", escapeHtml(round)),
-    cell("Сторителлер", escapeHtml(story)),
-  ];
+  const phaseLabel = (() => {
+    const g = Number(s.gamestate);
+    if (g === 1) return "лобби";
+    if (g === 2) return "старт";
+    if (g === 3) return "раунд";
+    if (g === 4) return "конец";
+    return "";
+  })();
+
+  const cells =
+    kind === "grim"
+      ? [
+          cell("Онлайн", escapeHtml(players)),
+          cell("Карта", escapeHtml(map)),
+          cell("Раунд", escapeHtml(round)),
+          ...(phaseLabel
+            ? [cell("Фаза", escapeHtml(phaseLabel))]
+            : []),
+        ]
+      : [
+          cell("Онлайн", escapeHtml(players)),
+          cell("На станции", escapeHtml(playing)),
+          cell(
+            "Уровень угрозы",
+            `<span class="sec-${escapeHtml(sec)}">${escapeHtml(sec)}</span>`
+          ),
+          cell("Карта", escapeHtml(map)),
+          cell("Раунд", escapeHtml(round)),
+          cell("Сторителлер", escapeHtml(story)),
+        ];
 
   setLine(
     `<div class="status-strip">${cells.join("")}${closedBadge}</div>`
@@ -420,19 +645,50 @@ function syncSelectionUI() {
   }
 
   const isRecommended = state.selectedId === state.recommendedId;
-  els.playLabel.textContent = "Присоединиться";
-  let playSub;
-  if (probe?.ok) {
-    playSub = `${probe.ms} ms${isRecommended ? " · рекомендовано" : ""}`;
-  } else if (probe && !probe.ok) {
-    playSub = "маршрут недоступен";
-  } else {
-    playSub = "проверка маршрута…";
+  const session = state.gameSession || {};
+  const gameRunning = Boolean(session.running || session.launching);
+  if (els.playMain) {
+    els.playMain.classList.toggle("is-running", gameRunning);
+    els.playMain.classList.toggle(
+      "is-launching",
+      Boolean(session.launching && !session.running)
+    );
   }
-  els.playSub.textContent = playSub;
+  if (gameRunning) {
+    els.playLabel.textContent = session.running
+      ? "Вернуться в игру"
+      : "Запускаем…";
+    const elapsed =
+      session.startedAt != null
+        ? formatElapsedMs(Date.now() - session.startedAt)
+        : "";
+    if (session.launching && !session.running) {
+      els.playSub.textContent = "ждём DreamSeeker…";
+    } else if (session.count > 1) {
+      els.playSub.textContent = `${session.count} окна · ${elapsed}`;
+    } else {
+      els.playSub.textContent = elapsed
+        ? `уже запущена · ${elapsed}`
+        : "уже запущена";
+    }
+  } else {
+    els.playLabel.textContent = "Присоединиться";
+    let playSub;
+    if (probe?.ok) {
+      playSub = `${probe.ms} ms${isRecommended ? " · рекомендовано" : ""}`;
+    } else if (probe && !probe.ok) {
+      playSub = "маршрут недоступен";
+    } else {
+      playSub = "проверка маршрута…";
+    }
+    els.playSub.textContent = playSub;
+  }
 
-  const direct = state.probes.mainDirect;
-  const proxy = state.probes.mainProxy;
+  const game = gameIdOf(server);
+  const directId = game === "grimrock" ? "grimDirect" : "mainDirect";
+  const proxyId = game === "grimrock" ? "grimProxy" : "mainProxy";
+  const direct = state.probes[directId];
+  const proxy = state.probes[proxyId];
   if (els.routeNote && direct && proxy) {
     let note = "";
     if (!direct.ok && proxy.ok) {
@@ -867,11 +1123,15 @@ function renderAuth() {
   if (user) {
     els.authLogin.hidden = true;
     els.authUser.hidden = false;
-    const name = user.globalName || user.username || "Discord";
+    const name = user.provisional
+      ? "Аккаунт"
+      : user.globalName || user.username || "Discord";
     els.authName.textContent = name;
-    els.authOpenAccount.title = user.inGuild
-      ? `${name} · на сервере Discord`
-      : `${name} · не на сервере Discord`;
+    els.authOpenAccount.title = user.provisional
+      ? "Сессия Discord сохранена, обновляем…"
+      : user.inGuild
+        ? `${name} · на сервере Discord`
+        : `${name} · не на сервере Discord`;
     if (user.avatarUrl) {
       els.authAvatar.src = user.avatarUrl;
       els.authAvatar.hidden = false;
@@ -900,10 +1160,17 @@ function renderLastLine() {
 }
 
 function setView(view) {
+  if (view === "music" && grimrockWorldActive()) {
+    view = "home";
+  }
   state.view = view;
   document.body.classList.toggle("on-account", view === "account");
   document.body.classList.toggle("on-logs", view === "logs");
   document.body.classList.toggle("on-music", view === "music");
+  document.body.classList.toggle("on-worlds", view === "worlds");
+  if (els.viewWorlds) {
+    els.viewWorlds.hidden = view !== "worlds";
+  }
   if (els.viewHome) {
     els.viewHome.hidden = view !== "home";
   }
@@ -920,8 +1187,11 @@ function setView(view) {
     els.viewMusic.hidden = view !== "music";
   }
   document.querySelectorAll(".menu_button[data-view]").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.view === view);
+    const isPlay =
+      btn.dataset.view === "home" && (view === "home" || view === "worlds");
+    btn.classList.toggle("active", isPlay || btn.dataset.view === view);
   });
+  applyGameTheme();
   if (view === "news") {
     markFeedRead(state.activeFeed);
     if (els.newsList) {
@@ -1017,12 +1287,22 @@ function renderHoursTable(rows) {
   </table>`;
 }
 
+function playerCardKindFromSelection() {
+  const kind = statusKindFromSelection();
+  return kind === "grim" ? "main" : kind;
+}
+
+function accountGameTitle() {
+  return playerCardKindFromSelection() === "dev" ? "Orbitalis DEV" : "Orbitalis";
+}
+
 function renderAccountCard(data) {
   const user = data.user || state.auth.user || {};
   const name = user.globalName || user.username || "Discord";
   const avatar = user.avatarUrl
     ? `<img class="account-avatar" src="${escapeHtml(user.avatarUrl)}" alt="" />`
     : "";
+  const gameTitle = accountGameTitle();
 
   if (!data.linked || !data.player) {
     els.accountBody.innerHTML = `
@@ -1038,7 +1318,7 @@ function renderAccountCard(data) {
             </div>
           </div>
           <div class="account-card">
-            <h3>Игровая карта</h3>
+            <h3>Игровая карта · ${escapeHtml(gameTitle)}</h3>
             <p class="panel-note">Discord не привязан к ckey. Привяжи аккаунт в игре.</p>
           </div>
         </div>
@@ -1167,6 +1447,7 @@ function renderAccountCard(data) {
             <span class="account-ckey-label">ckey</span>
             <span class="account-ckey-value">${escapeHtml(player.ckey)}</span>
           </div>
+          <div class="account-server-tag">${escapeHtml(gameTitle)}</div>
         </div>
 
         <div class="account-card">
@@ -1257,9 +1538,12 @@ async function loadAccount() {
   }
   renderAccountLoading();
   try {
-    const data = await window.launcher.fetchPlayer();
+    const data = await window.launcher.fetchPlayer(playerCardKindFromSelection());
     if (!data?.ok) {
-      renderAccountError(data?.error || "Ошибка загрузки");
+      const prefix = accountGameTitle();
+      renderAccountError(
+        data?.error ? `${prefix}: ${data.error}` : "Ошибка загрузки"
+      );
       return;
     }
     if (data.user) {
@@ -1395,35 +1679,73 @@ function updateNewsBadges() {
 
 async function loadStatus() {
   const kind = statusKindFromSelection();
+  const cached =
+    state.status?.kind === kind && state.status?.ok
+      ? state.status
+      : state.prefs?.lastStatus?.[kind] || null;
+  if (cached?.ok) {
+    state.status = cached;
+    renderStatus();
+  }
   try {
     const result = await window.launcher.fetchStatus(kind);
-    state.status = result;
+    if (result?.ok) {
+      state.status = result;
+      const lastStatus = {
+        ...(state.prefs.lastStatus || {}),
+        [kind]: result,
+      };
+      state.prefs.lastStatus = lastStatus;
+      try {
+        await window.launcher.savePrefs({ lastStatus });
+      } catch {
+        // ignore prefs write failures
+      }
+    } else if (!cached?.ok) {
+      state.status = result || {
+        ok: false,
+        kind,
+        error: "status_failed",
+      };
+    }
+    // If refresh failed but cache exists — keep cache, no timeout flash.
   } catch (error) {
-    state.status = {
-      ok: false,
-      kind,
-      error: error?.message || String(error),
-    };
+    if (!cached?.ok) {
+      state.status = {
+        ok: false,
+        kind,
+        error: error?.message || String(error),
+      };
+    }
   }
   renderStatus();
 }
 
 async function runProbes() {
   state.probing = true;
-  Object.keys(state.servers).forEach((id) => setDot(id, null));
+  const hadCache = Object.keys(state.probes || {}).length > 0;
+  if (!hadCache) {
+    Object.keys(state.servers).forEach((id) => setDot(id, null));
+  }
   els.refresh.disabled = true;
   syncSelectionUI();
 
   try {
     const result = await window.launcher.probeServers();
     state.probes = result.probes || {};
-    state.recommendedId = result.recommendedId || "mainDirect";
+    state.recommendedByGame = result.recommendedByGame || {};
+    const game = gameIdFromSelection();
+    const rec =
+      state.recommendedByGame[game] || result.recommendedId || state.selectedId;
+    state.recommendedId = rec;
 
     const current = state.probes[state.selectedId];
-    if (!current?.ok && state.probes[state.recommendedId]?.ok) {
-      state.selectedId = state.recommendedId;
-    } else if (!state.prefs.preferredRoute) {
-      state.selectedId = state.recommendedId;
+    if (gameIdOf(state.servers[rec]) === game) {
+      if (!current?.ok && state.probes[rec]?.ok) {
+        state.selectedId = rec;
+      } else if (!state.prefs.preferredRoute) {
+        state.selectedId = rec;
+      }
     }
   } catch (error) {
     toast(error?.message || "Не удалось проверить маршруты", true);
@@ -1439,11 +1761,15 @@ async function connect(serverId) {
   const id = serverId || state.selectedId;
   state.selectedId = id;
   syncSelectionUI();
-  els.playMain.disabled = true;
-  toast("Запускаем BYOND…");
+  const alreadyRunning = Boolean(state.gameSession?.running);
+  els.playMain.disabled = !alreadyRunning;
+  toast(alreadyRunning ? "Возвращаем окно игры…" : "Запускаем BYOND…");
 
   try {
     const result = await window.launcher.connect(id);
+    if (result?.session) {
+      applyGameSession(result.session);
+    }
     if (!result.ok) {
       toast(result.error || "Не удалось открыть BYOND", true);
       return;
@@ -1451,7 +1777,23 @@ async function connect(serverId) {
     state.prefs.lastServerId = id;
     state.prefs.lastConnectedAt = Date.now();
     state.prefs.preferredRoute = state.servers[id]?.route;
+    state.prefs.lastServerByGame = {
+      ...(state.prefs.lastServerByGame || {}),
+      [gameIdOf(state.servers[id])]: id,
+    };
     renderLastLine();
+    if (result.alreadyRunning) {
+      if (result.launching) {
+        toast("Уже запускаем игру — подожди секунду");
+      } else {
+        toast(
+          result.focused
+            ? "Игра уже запущена — окно на передний план"
+            : "Игра уже запущена. Новую копию не открываю."
+        );
+      }
+      return;
+    }
     toast(`Открыто: ${result.label}`);
   } catch (error) {
     toast(error?.message || "Ошибка запуска", true);
@@ -1508,18 +1850,34 @@ function bindUi() {
     btn.addEventListener("click", () => {
       const prevKind = statusKindFromSelection();
       state.selectedId = btn.dataset.server;
+      const selected = state.servers[state.selectedId];
+      const lastServerByGame = {
+        ...(state.prefs.lastServerByGame || {}),
+        [gameIdOf(selected)]: state.selectedId,
+      };
       window.launcher.savePrefs({
-        preferredRoute: state.servers[state.selectedId]?.route,
+        preferredRoute: selected?.route,
+        lastServerByGame,
       });
-      state.prefs.preferredRoute = state.servers[state.selectedId]?.route;
+      state.prefs.preferredRoute = selected?.route;
+      state.prefs.lastServerByGame = lastServerByGame;
+      applyGameTheme();
       syncSelectionUI();
       closeRouteMenu();
       if (statusKindFromSelection() !== prevKind) {
         loadStatus();
+        if (state.view === "account") {
+          loadAccount();
+        }
       }
     });
     btn.addEventListener("dblclick", () => connect(btn.dataset.server));
   });
+
+  document.querySelectorAll(".world-panel[data-game]").forEach((btn) => {
+    btn.addEventListener("click", () => enterWorld(btn.dataset.game));
+  });
+  els.worldsBack?.addEventListener("click", () => backToWorlds());
 
   bindRouteDropdown();
 
@@ -1563,7 +1921,14 @@ function bindUi() {
         return;
       }
       if (view === "music") {
+        if (grimrockWorldActive()) {
+          return;
+        }
         setView("music");
+        return;
+      }
+      if (view === "home") {
+        setView(state.worldEntered ? "home" : "worlds");
         return;
       }
       setView(view);
@@ -1639,14 +2004,21 @@ function bindUi() {
   });
 
   window.launcher.onAuthChanged((payload) => {
-    if (payload?.error) {
+    if (payload?.error && !payload?.silent) {
       toast(payload.error, true);
+    }
+    // Offline refresh must not wipe a visible session.
+    if (payload?.offline && payload?.silent && !payload?.user && state.auth.user) {
+      return;
     }
     state.auth.user = payload?.user || null;
     renderAuth();
     if (payload?.user) {
       const name = payload.user.globalName || payload.user.username;
-      toast(`Вошёл: ${name}`);
+      if (!payload?.silent && !payload.user.provisional) {
+        toast(`Вошёл: ${name}`);
+      }
+      syncMusicNavVisibility();
       refreshLogsStaff();
       refreshMusicAccess();
       if (state.view === "account") {
@@ -3008,9 +3380,10 @@ function setMusicReady(ready, meta = {}) {
   state.music.ready = ready === true;
   state.music.canModerate = Boolean(meta.canModerate);
   state.music.ckey = meta.ckey || null;
-  if (els.navMusic) {
-    els.navMusic.hidden = !state.music.ready;
+  if (!ready) {
+    state.music.collectionSynced = false;
   }
+  syncMusicNavVisibility();
   if (!state.music.ready && state.view === "music") {
     setView("home");
   }
@@ -3039,10 +3412,8 @@ function formatMusicSize(bytes) {
 }
 
 async function refreshMusicAccess() {
-  if (els.navMusic) els.navMusic.hidden = true;
-  state.music.ready = false;
-  state.music.canModerate = false;
-  state.music.ckey = null;
+  // Show the tab immediately for logged-in users — don't wait on music/auth RTT.
+  syncMusicNavVisibility();
   if (!state.music.configured || !state.auth.user) {
     setMusicReady(false);
     if (els.musicStatusNote) {
@@ -3103,6 +3474,10 @@ function musicAccessToast(result) {
 }
 
 async function openMusic() {
+  if (grimrockWorldActive()) {
+    if (state.view === "music") setView("home");
+    return;
+  }
   if (!state.music.configured) {
     toast("Music API не настроен", true);
     if (state.view === "music") setView("home");
@@ -3122,12 +3497,14 @@ async function openMusic() {
     if (state.view === "music") setView("home");
     return;
   }
-  await loadMusicTab();
-  await refreshMusicCounts();
+  const soft = (state.music.playlistTracks || []).length > 0;
+  await loadMusicTab({ soft });
+  // Don't block UI — public count can catch up in background.
+  void refreshMusicCounts({ publicOnly: true });
 }
 
 function setMusicTab(tab) {
-  state.music.tab = tab === "public" || tab === "playlist" ? tab : "mine";
+  state.music.tab = tab === "public" ? "public" : "mine";
   document.querySelectorAll("[data-music-tab]").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.musicTab === state.music.tab);
   });
@@ -3138,6 +3515,7 @@ function musicIcon(name) {
     play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>',
     pause: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3v14H7zm7 0h3v14h-3z"/></svg>',
     plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>',
+    minus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 11h14v2H5z"/></svg>',
     check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.2 16.6 5 12.4l1.4-1.4 2.8 2.8L17.6 5.4 19 6.8z"/></svg>',
     up: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.4 14.6 12 10l4.6 4.6 1.4-1.4L12 7.2 6 13.2z"/></svg>',
     down: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.4 9.4 12 14l4.6-4.6 1.4 1.4L12 16.8 6 10.8z"/></svg>',
@@ -3150,10 +3528,10 @@ function musicIcon(name) {
   return icons[name] || "";
 }
 
-function musicIconBtn(act, icon, title, extraClass = "") {
+function musicIconBtn(act, icon, title, extraClass = "", disabled = false) {
   return `<button type="button" class="music-icon-btn ${extraClass}" data-music-act="${act}" title="${escapeHtml(
     title
-  )}">${musicIcon(icon)}</button>`;
+  )}"${disabled ? " disabled" : ""}>${musicIcon(icon)}</button>`;
 }
 
 function renderMusicCounts() {
@@ -3161,29 +3539,63 @@ function renderMusicCounts() {
   if (els.musicCountMine) els.musicCountMine.textContent = String(c.mine || 0);
   if (els.musicCountPublic)
     els.musicCountPublic.textContent = String(c.public || 0);
-  if (els.musicCountPlaylist)
-    els.musicCountPlaylist.textContent = String(c.playlist || 0);
 }
 
-async function refreshMusicCounts() {
+function isOwnMusicTrack(track) {
+  return (
+    String(track?.ckey || "")
+      .trim()
+      .toLowerCase() === String(state.music.ckey || "").trim().toLowerCase()
+  );
+}
+
+function filterMusicTracks(tracks, q) {
+  const query = String(q || "")
+    .trim()
+    .toLowerCase();
+  if (!query) return tracks || [];
+  return (tracks || []).filter((t) => {
+    return (
+      String(t.name || "")
+        .toLowerCase()
+        .includes(query) ||
+      String(t.author || "")
+        .toLowerCase()
+        .includes(query) ||
+      String(t.ckey || "")
+        .toLowerCase()
+        .includes(query)
+    );
+  });
+}
+
+async function refreshMusicCounts({ publicOnly = false } = {}) {
   try {
-    const [mine, pub, pl] = await Promise.all([
-      window.launcher.musicLibrary({ kind: "mine", q: "" }),
-      window.launcher.musicLibrary({ kind: "public", q: "" }),
-      window.launcher.musicPlaylistGet(),
-    ]);
-    state.music.counts = {
-      mine: mine?.ok && Array.isArray(mine.tracks) ? mine.tracks.length : 0,
-      public: pub?.ok && Array.isArray(pub.tracks) ? pub.tracks.length : 0,
-      playlist:
-        pl?.ok && Array.isArray(pl.trackIds)
-          ? pl.trackIds.length
-          : Array.isArray(pl?.tracks)
-            ? pl.tracks.length
-            : 0,
-    };
-    if (pl?.ok && Array.isArray(pl.trackIds)) {
-      state.music.playlistIds = pl.trackIds;
+    if (publicOnly) {
+      const pub = await window.launcher.musicLibrary({ kind: "public", q: "" });
+      if (pub?.ok && Array.isArray(pub.tracks)) {
+        state.music.counts.public = pub.tracks.length;
+      }
+    } else {
+      const [pub, pl] = await Promise.all([
+        window.launcher.musicLibrary({ kind: "public", q: "" }),
+        window.launcher.musicPlaylistGet(),
+      ]);
+      state.music.counts = {
+        mine:
+          pl?.ok && Array.isArray(pl.trackIds)
+            ? pl.trackIds.length
+            : Array.isArray(pl?.tracks)
+              ? pl.tracks.length
+              : state.music.counts.mine || 0,
+        public:
+          pub?.ok && Array.isArray(pub.tracks)
+            ? pub.tracks.length
+            : state.music.counts.public || 0,
+      };
+      if (pl?.ok && Array.isArray(pl.trackIds)) {
+        state.music.playlistIds = pl.trackIds;
+      }
     }
   } catch {
     // keep previous counts
@@ -3191,52 +3603,133 @@ async function refreshMusicCounts() {
   renderMusicCounts();
 }
 
-async function loadMusicTab() {
-  if (state.music.loading) return;
+/** Fast path: playlist GET already returns tracks. */
+async function fetchMinePlaylist() {
+  const pl = await window.launcher.musicPlaylistGet();
+  if (!pl?.ok) {
+    return { ok: false, trackIds: [], tracks: [], error: pl?.error };
+  }
+  const ids = Array.isArray(pl.trackIds) ? pl.trackIds.map(String) : [];
+  const tracks = Array.isArray(pl.tracks) ? pl.tracks : [];
+  state.music.playlistIds = ids;
+  state.music.playlistTracks = tracks;
+  state.music.counts.mine = ids.length;
+  return { ok: true, trackIds: ids, tracks };
+}
+
+/**
+ * Ensure owned uploads are in "Моя". Runs after paint; skips if already synced
+ * this session unless force=true (upload/import/delete).
+ */
+async function ensureOwnedInCollection({ force = false } = {}) {
+  if (!force && state.music.collectionSynced) return false;
+  const owned = await window.launcher.musicLibrary({ kind: "mine", q: "" });
+  const ownedTracks =
+    owned?.ok && Array.isArray(owned.tracks) ? owned.tracks : [];
+  const ids = (state.music.playlistIds || []).map(String);
+  const missing = ownedTracks
+    .map((t) => String(t.id || ""))
+    .filter((id) => id && !ids.includes(id));
+  state.music.collectionSynced = true;
+  if (!missing.length) return false;
+
+  const byId = new Map([
+    ...(state.music.playlistTracks || []).map((t) => [String(t.id), t]),
+    ...ownedTracks.map((t) => [String(t.id), t]),
+  ]);
+  const next = [...ids, ...missing];
+  const saved = await window.launcher.musicPlaylistPut(next);
+  if (!saved?.ok) return false;
+  const finalIds = Array.isArray(saved.trackIds)
+    ? saved.trackIds.map(String)
+    : next;
+  state.music.playlistIds = finalIds;
+  state.music.playlistTracks = Array.isArray(saved.tracks)
+    ? saved.tracks
+    : finalIds.map((id) => byId.get(id)).filter(Boolean);
+  state.music.counts.mine = finalIds.length;
+  return true;
+}
+
+async function loadMusicTab({ soft = false, forceSync = false } = {}) {
+  const gen = ++state.music.loadGen;
   state.music.loading = true;
-  if (els.musicBody) {
+
+  const paintMineCache = () => {
+    if (state.music.tab !== "mine") return false;
+    const cached = state.music.playlistTracks || [];
+    if (!cached.length && !(state.music.playlistIds || []).length) return false;
+    state.music.tracks = filterMusicTracks(cached, state.music.q);
+    renderMusicCounts();
+    renderMusicBody();
+    return true;
+  };
+
+  const hasMineCache = (state.music.playlistTracks || []).length > 0;
+  const useSoft = soft || (state.music.tab === "mine" && hasMineCache);
+  if (useSoft) {
+    paintMineCache();
+  } else if (els.musicBody) {
     els.musicBody.innerHTML = `<p class="panel-note">Загрузка…</p>`;
   }
+
   try {
-    if (state.music.tab === "playlist") {
-      const pl = await window.launcher.musicPlaylistGet();
-      if (!pl?.ok) {
-        toast(pl?.error || "Не удалось загрузить плейлист", true);
-        state.music.playlistIds = [];
-        state.music.playlistTracks = [];
+    if (state.music.tab === "mine") {
+      const fetched = await fetchMinePlaylist();
+      if (gen !== state.music.loadGen) return;
+      if (!fetched.ok) {
+        toast(fetched.error || "Не удалось загрузить свои треки", true);
+        if (!hasMineCache) {
+          state.music.tracks = [];
+          renderMusicBody();
+        }
       } else {
-        state.music.playlistIds = Array.isArray(pl.trackIds) ? pl.trackIds : [];
-        state.music.playlistTracks = Array.isArray(pl.tracks) ? pl.tracks : [];
+        state.music.tracks = filterMusicTracks(fetched.tracks, state.music.q);
+        renderMusicCounts();
+        renderMusicBody();
       }
-      state.music.tracks = state.music.playlistTracks;
-      state.music.counts.playlist = state.music.playlistIds.length;
+      // Ownership merge in background — does not block first paint.
+      void ensureOwnedInCollection({ force: forceSync }).then((changed) => {
+        if (!changed || gen !== state.music.loadGen) return;
+        if (state.music.tab !== "mine" || state.view !== "music") return;
+        state.music.tracks = filterMusicTracks(
+          state.music.playlistTracks || [],
+          state.music.q
+        );
+        renderMusicCounts();
+        renderMusicBody();
+      });
     } else {
-      const kind = state.music.tab === "public" ? "public" : "mine";
       const lib = await window.launcher.musicLibrary({
-        kind,
+        kind: "public",
         q: state.music.q || "",
       });
+      if (gen !== state.music.loadGen) return;
       if (!lib?.ok) {
         toast(lib?.error || "Не удалось загрузить библиотеку", true);
-        state.music.tracks = [];
+        if (!useSoft) state.music.tracks = [];
       } else {
         state.music.tracks = Array.isArray(lib.tracks) ? lib.tracks : [];
         if (!state.music.q) {
-          state.music.counts[kind] = state.music.tracks.length;
+          state.music.counts.public = state.music.tracks.length;
         }
       }
-      if (!state.music.playlistIds.length) {
-        const pl = await window.launcher.musicPlaylistGet();
-        if (pl?.ok && Array.isArray(pl.trackIds)) {
-          state.music.playlistIds = pl.trackIds;
-          state.music.counts.playlist = pl.trackIds.length;
-        }
+      renderMusicCounts();
+      renderMusicBody();
+      if (!(state.music.playlistIds || []).length) {
+        void window.launcher.musicPlaylistGet().then((pl) => {
+          if (gen !== state.music.loadGen) return;
+          if (pl?.ok && Array.isArray(pl.trackIds)) {
+            state.music.playlistIds = pl.trackIds;
+            state.music.counts.mine = pl.trackIds.length;
+            renderMusicCounts();
+            if (state.music.tab === "public") renderMusicBody();
+          }
+        });
       }
     }
-    renderMusicCounts();
-    renderMusicBody();
   } finally {
-    state.music.loading = false;
+    if (gen === state.music.loadGen) state.music.loading = false;
   }
 }
 
@@ -3247,9 +3740,9 @@ function renderMusicBody() {
     els.musicBody.innerHTML = `<p class="panel-note">Пусто</p>`;
     return;
   }
-  const isPlaylist = state.music.tab === "playlist";
   const isMine = state.music.tab === "mine";
-  const playlistSet = new Set(state.music.playlistIds.map(String));
+  const isPublic = state.music.tab === "public";
+  const collectionSet = new Set((state.music.playlistIds || []).map(String));
   const playingId = state.music.nowPlaying?.id
     ? String(state.music.nowPlaying.id)
     : "";
@@ -3257,17 +3750,66 @@ function renderMusicBody() {
   els.musicBody.innerHTML = tracks
     .map((t) => {
       const id = String(t.id || "");
-      const inPl = playlistSet.has(id);
-      const canDelete =
-        isMine ||
-        (state.music.canModerate && state.music.tab === "public") ||
-        (isPlaylist &&
-          (String(t.ckey || "").toLowerCase() ===
-            String(state.music.ckey || "").toLowerCase() ||
-            state.music.canModerate));
-      const showVis = isMine;
+      const own = isOwnMusicTrack(t);
+      const inCollection = collectionSet.has(id);
       const vis = t.visibility === "private" ? "private" : "public";
       const isPlaying = playingId === id;
+      const actions = [];
+      if (isMine) {
+        const orderIdx = (state.music.playlistIds || [])
+          .map(String)
+          .indexOf(id);
+        const orderLen = (state.music.playlistIds || []).length;
+        actions.push(
+          musicIconBtn("pl-up", "up", "Выше", "", orderIdx <= 0)
+        );
+        actions.push(
+          musicIconBtn(
+            "pl-down",
+            "down",
+            "Ниже",
+            "",
+            orderIdx < 0 || orderIdx >= orderLen - 1
+          )
+        );
+        if (own) {
+          actions.push(
+            musicIconBtn(
+              "toggle-vis",
+              vis === "private" ? "eye" : "eyeOff",
+              vis === "private" ? "В общую" : "Скрыть"
+            )
+          );
+          actions.push(musicIconBtn("delete", "trash", "Удалить файл", "danger"));
+        } else {
+          actions.push(
+            musicIconBtn("pl-remove", "minus", "Убрать из своих")
+          );
+        }
+      } else if (isPublic) {
+        if (!inCollection) {
+          actions.push(musicIconBtn("pl-add", "plus", "В свои треки"));
+        } else {
+          actions.push(
+            musicIconBtn("pl-remove", "minus", "Убрать из своих", "is-active")
+          );
+        }
+        if (state.music.canModerate && !own) {
+          actions.push(
+            musicIconBtn("delete", "trash", "Удалить из общей (руководство)", "danger")
+          );
+        }
+        if (own) {
+          actions.push(
+            musicIconBtn(
+              "toggle-vis",
+              vis === "private" ? "eye" : "eyeOff",
+              vis === "private" ? "В общую" : "Скрыть"
+            )
+          );
+          actions.push(musicIconBtn("delete", "trash", "Удалить файл", "danger"));
+        }
+      }
       return `<article class="music-row${
         isPlaying ? " is-playing" : ""
       }" data-track-id="${escapeHtml(id)}">
@@ -3279,36 +3821,13 @@ function renderMusicBody() {
         t.ckey ? ` · ${escapeHtml(t.ckey)}` : ""
       } · ${formatMusicDuration(t.duration_seconds)} · ${formatMusicSize(
         t.size_bytes
-      )}${vis === "private" ? " · private" : ""}</div>
+      )}${vis === "private" ? " · private" : ""}${
+        isMine && !own ? " · из общей" : ""
+      }</div>
           </div>
         </div>
         <div class="music-row-actions">
-          ${
-            isPlaylist
-              ? `${musicIconBtn("pl-up", "up", "Выше")}
-                 ${musicIconBtn("pl-down", "down", "Ниже")}
-                 ${musicIconBtn("pl-remove", "check", "Убрать из плейлиста", "is-active")}`
-              : musicIconBtn(
-                  inPl ? "pl-remove" : "pl-add",
-                  inPl ? "check" : "plus",
-                  inPl ? "В плейлисте" : "В плейлист",
-                  inPl ? "is-active" : ""
-                )
-          }
-          ${
-            showVis
-              ? musicIconBtn(
-                  "toggle-vis",
-                  vis === "private" ? "eye" : "eyeOff",
-                  vis === "private" ? "В общую" : "Скрыть"
-                )
-              : ""
-          }
-          ${
-            canDelete && (isMine || state.music.canModerate)
-              ? musicIconBtn("delete", "trash", "Удалить", "danger")
-              : ""
-          }
+          ${actions.join("")}
         </div>
       </article>`;
     })
@@ -3406,13 +3925,13 @@ async function playMusicTrack(trackId) {
 async function savePlaylistIds(nextIds) {
   const res = await window.launcher.musicPlaylistPut(nextIds);
   if (!res?.ok) {
-    toast(res?.error || "Не удалось сохранить плейлист", true);
+    toast(res?.error || "Не удалось сохранить список", true);
     return false;
   }
   state.music.playlistIds = Array.isArray(res.trackIds)
     ? res.trackIds
     : nextIds;
-  state.music.counts.playlist = state.music.playlistIds.length;
+  state.music.counts.mine = state.music.playlistIds.length;
   if (Array.isArray(res.tracks)) {
     state.music.playlistTracks = res.tracks;
   }
@@ -3428,31 +3947,38 @@ async function handleMusicAction(act, trackId) {
     return;
   }
   if (act === "pl-add") {
-    if (state.music.playlistIds.map(String).includes(id)) {
-      toast("Уже в плейлисте");
+    if ((state.music.playlistIds || []).map(String).includes(id)) {
+      toast("Уже в своих");
       return;
     }
-    const next = [...state.music.playlistIds.map(String), id];
+    const next = [...(state.music.playlistIds || []).map(String), id];
     if (await savePlaylistIds(next)) {
-      toast("Добавлено в плейлист");
+      toast("Добавлено в свои");
       renderMusicBody();
     }
     return;
   }
   if (act === "pl-remove") {
-    const next = state.music.playlistIds.map(String).filter((x) => x !== id);
+    const next = (state.music.playlistIds || [])
+      .map(String)
+      .filter((x) => x !== id);
     if (await savePlaylistIds(next)) {
-      toast("Убрано из плейлиста");
-      if (state.music.tab === "playlist") {
-        await loadMusicTab();
-      } else {
-        renderMusicBody();
+      toast("Убрано из своих");
+      if (state.music.tab === "mine") {
+        state.music.playlistTracks = (state.music.playlistTracks || []).filter(
+          (t) => String(t.id) !== id
+        );
+        state.music.tracks = filterMusicTracks(
+          state.music.playlistTracks,
+          state.music.q
+        );
       }
+      renderMusicBody();
     }
     return;
   }
   if (act === "pl-up" || act === "pl-down") {
-    const ids = state.music.playlistIds.map(String);
+    const ids = (state.music.playlistIds || []).map(String);
     const idx = ids.indexOf(id);
     if (idx < 0) return;
     const swap = act === "pl-up" ? idx - 1 : idx + 1;
@@ -3461,7 +3987,15 @@ async function handleMusicAction(act, trackId) {
     ids[idx] = ids[swap];
     ids[swap] = tmp;
     if (await savePlaylistIds(ids)) {
-      await loadMusicTab();
+      const byId = new Map(
+        (state.music.playlistTracks || []).map((t) => [String(t.id), t])
+      );
+      state.music.playlistTracks = ids.map((tid) => byId.get(tid)).filter(Boolean);
+      state.music.tracks = filterMusicTracks(
+        state.music.playlistTracks,
+        state.music.q
+      );
+      renderMusicBody();
     }
     return;
   }
@@ -3477,8 +4011,25 @@ async function handleMusicAction(act, trackId) {
       toast(res?.error || "Не удалось изменить видимость", true);
       return;
     }
+    if (track) track.visibility = nextVis;
+    const plTrack = (state.music.playlistTracks || []).find(
+      (t) => String(t.id) === id
+    );
+    if (plTrack) plTrack.visibility = nextVis;
+    if (nextVis === "private" && state.music.tab === "public") {
+      state.music.tracks = (state.music.tracks || []).filter(
+        (t) => String(t.id) !== id
+      );
+      if (!state.music.q) {
+        state.music.counts.public = Math.max(
+          0,
+          (state.music.counts.public || 1) - 1
+        );
+        renderMusicCounts();
+      }
+    }
     toast(nextVis === "public" ? "В общей библиотеке" : "Скрыто");
-    await loadMusicTab();
+    renderMusicBody();
     return;
   }
   if (act === "delete") {
@@ -3488,12 +4039,25 @@ async function handleMusicAction(act, trackId) {
       toast(res?.error || "Не удалось удалить", true);
       return;
     }
-    state.music.playlistIds = state.music.playlistIds
+    state.music.playlistIds = (state.music.playlistIds || [])
       .map(String)
       .filter((x) => x !== id);
+    state.music.playlistTracks = (state.music.playlistTracks || []).filter(
+      (t) => String(t.id) !== id
+    );
+    state.music.tracks = (state.music.tracks || []).filter(
+      (t) => String(t.id) !== id
+    );
+    state.music.counts.mine = state.music.playlistIds.length;
+    if (state.music.tab === "public" && !state.music.q) {
+      state.music.counts.public = Math.max(
+        0,
+        (state.music.counts.public || 1) - 1
+      );
+    }
     toast("Трек удалён");
-    await loadMusicTab();
-    await refreshMusicCounts();
+    renderMusicCounts();
+    renderMusicBody();
   }
 }
 
@@ -3501,7 +4065,8 @@ function bindMusicUi() {
   document.querySelectorAll("[data-music-tab]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       setMusicTab(btn.dataset.musicTab);
-      await loadMusicTab();
+      const soft = Boolean(els.musicBody?.childElementCount);
+      await loadMusicTab({ soft });
     });
   });
 
@@ -3510,25 +4075,14 @@ function bindMusicUi() {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(async () => {
       state.music.q = String(els.musicSearch.value || "").trim();
-      if (state.music.tab !== "playlist") {
-        await loadMusicTab();
-      } else {
-        const q = state.music.q.toLowerCase();
-        state.music.tracks = (state.music.playlistTracks || []).filter((t) => {
-          if (!q) return true;
-          return (
-            String(t.name || "")
-              .toLowerCase()
-              .includes(q) ||
-            String(t.author || "")
-              .toLowerCase()
-              .includes(q) ||
-            String(t.ckey || "")
-              .toLowerCase()
-              .includes(q)
-          );
-        });
+      if (state.music.tab === "mine") {
+        state.music.tracks = filterMusicTracks(
+          state.music.playlistTracks || [],
+          state.music.q
+        );
         renderMusicBody();
+      } else {
+        await loadMusicTab({ soft: true });
       }
     }, 280);
   });
@@ -3552,14 +4106,65 @@ function bindMusicUi() {
         toast(res?.error || "Загрузка не удалась", true);
         return;
       }
-      toast("Загружено в общую");
+      const newId = String(res.track?.id || res.id || "");
+      if (newId) {
+        const ids = (state.music.playlistIds || []).map(String);
+        if (!ids.includes(newId)) {
+          await savePlaylistIds([...ids, newId]);
+        }
+      }
+      state.music.collectionSynced = false;
+      toast("Загружено");
       setMusicTab("mine");
-      await loadMusicTab();
-      await refreshMusicCounts();
+      await loadMusicTab({ soft: true, forceSync: true });
+      void refreshMusicCounts({ publicOnly: true });
     } catch (error) {
       toast(error?.message || "Ошибка загрузки", true);
     } finally {
       els.musicUploadBtn.disabled = false;
+    }
+  });
+
+  els.musicImportBtn?.addEventListener("click", async () => {
+    if (!state.music.ready) {
+      toast("Нужен Discord и ckey", true);
+      return;
+    }
+    const url = String(els.musicImportUrl?.value || "").trim();
+    if (!url) {
+      toast("Вставь ссылку на трек", true);
+      return;
+    }
+    els.musicImportBtn.disabled = true;
+    if (els.musicImportUrl) els.musicImportUrl.disabled = true;
+    toast("Импорт по ссылке… может занять минуту");
+    try {
+      const res = await window.launcher.musicImportUrl({
+        url,
+        visibility: "public",
+      });
+      if (!res?.ok) {
+        toast(res?.error || res?.message || "Импорт не удался", true);
+        return;
+      }
+      const newId = String(res.track?.id || res.id || "");
+      if (newId) {
+        const ids = (state.music.playlistIds || []).map(String);
+        if (!ids.includes(newId)) {
+          await savePlaylistIds([...ids, newId]);
+        }
+      }
+      state.music.collectionSynced = false;
+      toast("Трек импортирован");
+      if (els.musicImportUrl) els.musicImportUrl.value = "";
+      setMusicTab("mine");
+      await loadMusicTab({ soft: true, forceSync: true });
+      void refreshMusicCounts({ publicOnly: true });
+    } catch (error) {
+      toast(error?.message || "Ошибка импорта", true);
+    } finally {
+      els.musicImportBtn.disabled = false;
+      if (els.musicImportUrl) els.musicImportUrl.disabled = false;
     }
   });
 
@@ -3622,7 +4227,7 @@ function bindMusicUi() {
 async function boot() {
   initParallax();
   setUpdateProgress(0, false);
-  setView("home");
+  setView("worlds");
   const data = await window.launcher.getBootstrap();
   state.servers = data.servers;
   state.links = data.links;
@@ -3640,27 +4245,65 @@ async function boot() {
       ? data.prefs.lastServerId
       : "mainDirect";
 
+  // Show last known route latency immediately (like 0.6.0 "уже работает").
+  if (data.lastProbes && typeof data.lastProbes === "object") {
+    state.probes = data.lastProbes;
+  }
+  if (data.lastStatus && typeof data.lastStatus === "object") {
+    state.prefs.lastStatus = data.lastStatus;
+    const kind = statusKindFromSelection();
+    if (data.lastStatus[kind]?.ok) {
+      state.status = data.lastStatus[kind];
+    }
+  }
+
   els.version.textContent = `v${data.launcherVersion}`;
   setByondState(data.byondInstalled, data.byondPath, data.byondVersion);
   setPatchBtnState(Boolean(data.byondPatched));
 
+  if (window.launcher.onGameSession) {
+    window.launcher.onGameSession(applyGameSession);
+  }
+  if (data.gameSession) {
+    state.gameSession = data.gameSession;
+  }
+  setInterval(() => {
+    if (state.gameSession?.running || state.gameSession?.launching) {
+      syncSelectionUI();
+    }
+  }, 1000);
+
   renderAuth();
   renderLastLine();
   bindUi();
+  Object.keys(state.servers || {}).forEach((id) =>
+    setDot(id, state.probes[id] || null)
+  );
+  applyGameTheme();
   syncSelectionUI();
-  await Promise.all([runProbes(), loadNews(), loadStatus()]);
+  if (state.status) renderStatus();
+
+  // Tabs must not wait for route probes (those can take tens of seconds).
+  const accessJobs = [];
   if (state.auth.user && state.logs.configured) {
-    await refreshLogsStaff();
+    accessJobs.push(refreshLogsStaff());
   } else {
     setLogsStaff(false);
   }
   if (state.auth.user && state.music.configured) {
-    await refreshMusicAccess();
+    // Reveal music nav instantly; ckey/access check continues in background.
+    syncMusicNavVisibility();
+    accessJobs.push(refreshMusicAccess());
   } else {
     setMusicReady(false);
   }
+  void Promise.all(accessJobs);
+
+  // Probes / news / status in background so "Присоединиться" becomes usable ASAP.
+  void Promise.all([runProbes(), loadNews(), loadStatus()]);
   checkForLauncherUpdate();
   loadVirusTotalLink();
+  syncPresenceContext();
 }
 
 boot();

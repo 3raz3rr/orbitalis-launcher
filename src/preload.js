@@ -5,9 +5,18 @@ contextBridge.exposeInMainWorld("launcher", {
   probeServers: () => ipcRenderer.invoke("probe-servers"),
   fetchNews: () => ipcRenderer.invoke("fetch-news"),
   fetchStatus: (kind) => ipcRenderer.invoke("fetch-status", kind),
-  fetchPlayer: () => ipcRenderer.invoke("fetch-player"),
+  fetchPlayer: (kind) => ipcRenderer.invoke("fetch-player", kind),
   savePrefs: (patch) => ipcRenderer.invoke("save-prefs", patch),
   connect: (serverId) => ipcRenderer.invoke("connect", serverId),
+  getGameSession: () => ipcRenderer.invoke("get-game-session"),
+  focusGame: () => ipcRenderer.invoke("focus-game"),
+  setPresenceContext: (payload) =>
+    ipcRenderer.invoke("presence-context", payload || {}),
+  onGameSession: (handler) => {
+    const listener = (_event, payload) => handler(payload);
+    ipcRenderer.on("game-session", listener);
+    return () => ipcRenderer.removeListener("game-session", listener);
+  },
   pickByond: () => ipcRenderer.invoke("pick-byond"),
   clearByondPath: () => ipcRenderer.invoke("clear-byond-path"),
   openExternal: (url) => ipcRenderer.invoke("open-external", url),
@@ -45,6 +54,8 @@ contextBridge.exposeInMainWorld("launcher", {
   musicPatch: (payload) => ipcRenderer.invoke("music-patch", payload),
   musicPickAndUpload: (meta) =>
     ipcRenderer.invoke("music-pick-and-upload", meta || {}),
+  musicImportUrl: (payload) =>
+    ipcRenderer.invoke("music-import-url", payload || {}),
   musicLocalStream: (trackId) =>
     ipcRenderer.invoke("music-local-stream", trackId),
 });

@@ -1,6 +1,6 @@
 {
   "name": "orbitalis-launcher",
-  "version": "0.7.0",
+  "version": "0.7.25",
   "description": "Orbitalis SS13 launcher - routes, news, Discord login, station status",
   "main": "src/main.js",
   "author": "Orbitalis",
@@ -9,7 +9,8 @@
     "start": "electron .",
     "pack": "electron-builder --dir",
     "dist": "electron-builder --win portable",
-    "logs-api": "node tools/logs-api/server.js"
+    "logs-api": "node tools/logs-api/server.js",
+    "servers-api": "node tools/servers-api/server.js"
   },
   "build": {
     "appId": "space.hornyjail.orbitalis.launcher",

@@ -1,0 +1,14 @@
+{
+  "name": "orbitalis-servers-api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Server catalog, owner cabinet, and BYOND bridge for the Orbitalis launcher",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "smoke": "node scripts/smoke.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

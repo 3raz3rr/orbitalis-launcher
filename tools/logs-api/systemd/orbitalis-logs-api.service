@@ -1,0 +1,18 @@
+[Unit]
+Description=Orbitalis logs API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/orbitalis/logs-api
+EnvironmentFile=-/etc/orbitalis/discord.env
+EnvironmentFile=/etc/orbitalis/logs-api.env
+ExecStart=/usr/bin/node /opt/orbitalis/logs-api/server.js
+Restart=on-failure
+RestartSec=3
+User=www-data
+Group=www-data
+
+[Install]
+WantedBy=multi-user.target

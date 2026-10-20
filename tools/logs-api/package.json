@@ -1,0 +1,13 @@
+{
+  "name": "orbitalis-logs-api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local Orbitalis SS13 logs API for launcher admin tools",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

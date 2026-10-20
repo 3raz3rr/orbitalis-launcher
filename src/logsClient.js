@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const http = require("http");
 const https = require("https");
-const dns = require("dns");
+const { lookupIpv4First } = require("./hostResolve");
 
 function loadLogsConfig() {
   try {
@@ -12,16 +12,6 @@ function loadLogsConfig() {
   } catch {
     return { logsApiUrl: "" };
   }
-}
-
-function lookupIpv4First(hostname, options, callback) {
-  dns.lookup(hostname, { family: 4, all: false }, (error, address, family) => {
-    if (!error) {
-      callback(null, address, family);
-      return;
-    }
-    dns.lookup(hostname, options || {}, callback);
-  });
 }
 
 function requestJson(

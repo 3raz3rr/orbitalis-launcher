@@ -1,0 +1,303 @@
+:root {
+  --bg: #07080c;
+  --ink: rgba(255, 255, 255, 0.92);
+  --muted: rgba(255, 255, 255, 0.5);
+  --line: rgba(255, 255, 255, 0.1);
+  --accent: #8cb4dc;
+  --accent-rgb: 140, 180, 220;
+  --good: #6fdb9a;
+  --bad: #e7a0a0;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.5 "Segoe UI", sans-serif;
+}
+a { color: inherit; text-decoration: none; }
+button, input, select { font: inherit; color: inherit; }
+.stars {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 70% 10%, rgba(30, 50, 80, 0.45), transparent 42%),
+    radial-gradient(1px 1px at 12% 22%, rgba(255,255,255,.7), transparent),
+    radial-gradient(1px 1px at 70% 30%, rgba(255,255,255,.55), transparent),
+    radial-gradient(1px 1px at 40% 70%, rgba(255,255,255,.4), transparent);
+  background-size: auto, 220px 220px, 260px 260px, 180px 180px;
+}
+.top, main { position: relative; z-index: 1; }
+.top {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 16px 28px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(7, 8, 12, 0.55);
+  backdrop-filter: blur(16px);
+}
+.brand {
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  font-size: 13px;
+}
+nav { display: flex; gap: 6px; flex: 1; }
+nav a, .btn, .who button {
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 8px 12px;
+  color: var(--muted);
+  cursor: pointer;
+}
+nav a.active, .btn.primary {
+  color: white;
+  border-color: rgba(var(--accent-rgb), 0.55);
+  background: rgba(var(--accent-rgb), 0.12);
+}
+.who { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+@font-face {
+  font-family: "Blackmoor";
+  src: url("/media/blackmoor.ttf") format("truetype");
+}
+.view { min-height: calc(100vh - 62px); }
+.landing-hero {
+  min-height: calc(100vh - 70px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 48px 24px 72px;
+}
+.landing-logo {
+  width: 112px;
+  height: 112px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 28px rgba(var(--accent-rgb), 0.45));
+}
+.landing-hero h1 {
+  margin: 18px 0 0;
+  font-family: "Century Gothic", Bahnschrift, "Segoe UI", sans-serif;
+  font-weight: 400;
+  font-size: clamp(42px, 7vw, 76px);
+  letter-spacing: 0.42em;
+  line-height: 1;
+  padding-left: 0.42em;
+  text-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+}
+.orbit-sub {
+  margin: 14px 0 0;
+  letter-spacing: 0.46em;
+  text-transform: uppercase;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.38);
+  padding-left: 0.46em;
+}
+.landing-hero .lede {
+  max-width: 36rem;
+  margin: 22px 0 0;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 18px;
+}
+.kicker {
+  margin: 0 0 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-size: 12px;
+  color: var(--accent);
+}
+.actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.hint, .gate { color: var(--muted); }
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 28px;
+  justify-content: center;
+}
+.play-btn {
+  min-width: 240px;
+  padding: 16px 28px;
+  font-size: 18px;
+  letter-spacing: 0.04em;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35), 0 0 24px rgba(var(--accent-rgb), 0.18);
+}
+.btn.ghost { color: rgba(255, 255, 255, 0.72); }
+.worlds {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 460px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.world {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 6px;
+  min-height: 460px;
+  padding: 36px;
+  overflow: hidden;
+}
+.world.is-orbitalis {
+  background:
+    radial-gradient(ellipse at 30% 20%, rgba(50, 80, 120, 0.35), transparent 55%),
+    radial-gradient(1px 1px at 20% 30%, rgba(255,255,255,.7), transparent),
+    radial-gradient(1px 1px at 70% 60%, rgba(255,255,255,.5), transparent),
+    #070910;
+  background-size: auto, 180px 180px, 220px 220px, auto;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+.world.is-grim {
+  background: #050303 center / cover no-repeat url("/media/grimrock-lobby.png");
+}
+.world-veil {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0.12) 55%);
+}
+.world-kicker, .world-name, .world-note { position: relative; z-index: 1; }
+.world-kicker {
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-size: 11px;
+  color: var(--accent);
+}
+.world-name {
+  font-family: "Century Gothic", Bahnschrift, "Segoe UI", sans-serif;
+  font-size: clamp(32px, 4vw, 48px);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.grim-name {
+  font-family: "Blackmoor", Georgia, serif;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  font-size: clamp(48px, 6vw, 72px);
+  color: #f0e6d4;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.85);
+}
+.world-note { color: rgba(255, 255, 255, 0.62); }
+.pitch {
+  padding: 88px 8vw 48px;
+  display: grid;
+  gap: 36px;
+}
+.pitch h2 {
+  max-width: 16ch;
+  margin: 8px 0 0;
+  font-size: clamp(32px, 4vw, 48px);
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+.pitch-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 22px;
+}
+.pitch-grid article {
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.pitch-grid h3 { margin: 0 0 8px; font-size: 18px; font-weight: 550; }
+.pitch-grid p { margin: 0; color: var(--muted); }
+.landing-foot {
+  display: flex;
+  gap: 22px;
+  padding: 22px 8vw 32px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+}
+.landing-foot a:hover { color: white; }
+@media (max-width: 900px) {
+  .worlds, .pitch-grid { grid-template-columns: 1fr; }
+  .world.is-orbitalis { border-right: 0; border-bottom: 1px solid rgba(255,255,255,.08); }
+}
+.browser {
+  height: calc(100vh - 62px);
+  display: grid;
+  grid-template-columns: 1fr 300px;
+}
+.stage {
+  display: flex;
+  align-items: flex-end;
+  padding: 36px;
+  background:
+    radial-gradient(ellipse at 30% 20%, rgba(40, 60, 90, 0.35), transparent 50%),
+    #07080c;
+}
+.stage.theme-grimrock {
+  background:
+    linear-gradient(to top, rgba(0,0,0,.72), rgba(0,0,0,.2)),
+    #140e0c;
+}
+.stage.theme-plain { background: #0c0d12; }
+.stage h2 {
+  margin: 8px 0;
+  font-size: 52px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+}
+.stage p { margin: 0 0 16px; color: var(--muted); }
+.rail {
+  border-left: 1px solid var(--line);
+  background: rgba(5, 6, 8, 0.92);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.rail-head, .list-head {
+  padding: 16px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-size: 11px;
+  color: var(--muted);
+}
+.list-head { display: flex; justify-content: space-between; align-items: center; padding: 0 0 12px; }
+.rail-scroll, #mine-list { overflow: auto; padding: 0 8px 16px; }
+.server, .mine-item {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 10px;
+  text-align: left;
+  padding: 10px 12px;
+  margin-bottom: 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+.server.current, .mine-item.current { background: rgba(var(--accent-rgb), 0.12); }
+.server small, .mine-item small { grid-column: 1; color: var(--muted); font-size: 12px; }
+.live { color: var(--good); }
+.mine {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 28px;
+  padding: 28px;
+}
+form { display: flex; flex-direction: column; gap: 14px; max-width: 720px; }
+label { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 13px; }
+input, select {
+  background: #101218;
+  border: 1px solid var(--line);
+  padding: 10px;
+}
+.row { display: grid; grid-template-columns: 1fr 180px; gap: 12px; }
+.error { color: var(--bad); margin: 0; }
+.token-box { border-top: 1px solid var(--line); padding-top: 12px; }
+code { color: var(--accent); }
+.btn.danger { color: var(--bad); border-color: rgba(224, 122, 122, 0.45); }
+@media (max-width: 900px) {
+  .steps, .browser, .mine, .row { grid-template-columns: 1fr; }
+  h1 { font-size: 40px; }
+  .browser { height: auto; }
+  .stage { min-height: 420px; }
+}

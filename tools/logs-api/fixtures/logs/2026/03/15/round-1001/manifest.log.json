@@ -1,0 +1,5 @@
+{"ts":"1782826775.924","cat":"manifest","msg":null}
+{"ts":"2026-03-15 12:00:01.100","cat":"manifest","msg":"alice \\ Alice Smith \\ Captain \\ NONE \\ ROUNDSTART","data":{"ckey":"alice","name":"Alice Smith","job":"Captain","roles":"NONE","latejoin":false}}
+{"ts":"2026-03-15 12:00:01.200","cat":"manifest","msg":"bob \\ Bob Jones \\ Security Officer \\ NONE \\ ROUNDSTART","data":{"ckey":"bob","name":"Bob Jones","job":"Security Officer","roles":"NONE","latejoin":false}}
+{"ts":"2026-03-15 12:05:10.000","cat":"manifest","msg":"carol \\ Carol Lee \\ Assistant \\ NONE \\ LATEJOIN","data":{"ckey":"carol","name":"Carol Lee","job":"Assistant","roles":"NONE","latejoin":true}}
+{"ts":"2026-03-15 12:00:02.000","cat":"manifest","msg":"dave \\ Dave Nuke \\ Scientist \\ Traitor \\ ROUNDSTART","data":{"ckey":"dave","name":"Dave Nuke","job":"Scientist","roles":"Traitor","latejoin":false}}

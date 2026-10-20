@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; connect-src 'self' https://auth.hornyjail.space https://logs.hornyjail.space https://music.hornyjail.space https://devassets.hornyjail.space http://proxy.hornyjail.space:* http://127.0.0.1:* http://localhost:* https://cdn.jsdelivr.net; media-src 'self' file: https://music.hornyjail.space blob: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: blob: https://cdn.discordapp.com https://media.discordapp.net https://*.discordapp.com https://*.discordapp.net https://cdn.jsdelivr.net https://devassets.hornyjail.space http://proxy.hornyjail.space:*;"
+      content="default-src 'self'; connect-src 'self' https://auth.hornyjail.space https://logs.hornyjail.space https://music.hornyjail.space https://devassets.hornyjail.space http://proxy.hornyjail.space:* http://127.0.0.1:* http://localhost:* https://cdn.jsdelivr.net; media-src 'self' file: https://music.hornyjail.space blob: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; img-src 'self' data: blob: https://cdn.discordapp.com https://media.discordapp.net https://*.discordapp.com https://*.discordapp.net https://cdn.jsdelivr.net https://devassets.hornyjail.space http://proxy.hornyjail.space:*;"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Orbitalis</title>
@@ -15,6 +15,7 @@
       <div class="parallax-layer parallax-nebula" id="parallax-nebula"></div>
       <div class="parallax-layer parallax-stars-small" id="parallax-stars-small"></div>
       <div class="parallax-layer parallax-stars-big" id="parallax-stars-big"></div>
+      <div class="parallax-layer parallax-grimrock" id="parallax-grimrock"></div>
     </div>
     <div class="parallax-gradient" aria-hidden="true"></div>
 
@@ -66,13 +67,31 @@
       </header>
 
       <main class="stage">
-        <section id="view-home" class="view view-home">
+        <section id="view-worlds" class="view view-worlds">
+          <button type="button" class="world-panel is-orbitalis" data-game="orbitalis">
+            <span class="world-panel-bg" aria-hidden="true"></span>
+            <span class="world-panel-veil" aria-hidden="true"></span>
+            <span class="world-panel-body">
+              <span class="world-panel-name">Orbitalis</span>
+            </span>
+          </button>
+          <button type="button" class="world-panel is-grimrock" data-game="grimrock">
+            <span class="world-panel-bg" aria-hidden="true"></span>
+            <span class="world-panel-veil" aria-hidden="true"></span>
+            <span class="world-panel-body">
+              <span class="world-panel-name grim-name">Grimrock</span>
+            </span>
+          </button>
+        </section>
+
+        <section id="view-home" class="view view-home" hidden>
+          <button type="button" class="worlds-back" id="worlds-back">← выбор сервера</button>
           <div class="home-grid">
             <div class="home-hero">
               <div class="hero-brand">
-                <img class="brand-logo" src="assets/logo.png" alt="" width="88" height="88" />
-                <h1 class="lobby_title">ORBITALIS</h1>
-                <div class="lobby_subtitle">LAUNCHER</div>
+                <img class="brand-logo" id="brand-logo" src="assets/logo.png" alt="" width="88" height="88" />
+                <h1 class="lobby_title" id="lobby-title">ORBITALIS</h1>
+                <div class="lobby_subtitle" id="lobby-subtitle">SPACE STATION</div>
               </div>
 
               <button type="button" id="play-main" class="play">
@@ -101,25 +120,35 @@
                     </svg>
                   </button>
                   <div class="dropdown-menu" id="route-menu" role="listbox" hidden>
-                    <button type="button" class="route-option" data-server="mainDirect" role="option" title="play.hornyjail.space">
+                    <button type="button" class="route-option" data-server="mainDirect" data-game="orbitalis" role="option" title="play.hornyjail.space">
                       <span class="route-dot" data-dot="mainDirect"></span>
                       <span class="route-opt-name">Основной · прямой</span>
                       <span class="route-ms" id="ms-mainDirect">-</span>
                     </button>
-                    <button type="button" class="route-option" data-server="mainProxy" role="option" title="proxy.hornyjail.space">
+                    <button type="button" class="route-option" data-server="mainProxy" data-game="orbitalis" role="option" title="proxy.hornyjail.space">
                       <span class="route-dot" data-dot="mainProxy"></span>
                       <span class="route-opt-name">Основной · прокси</span>
                       <span class="route-ms" id="ms-mainProxy">-</span>
                     </button>
-                    <button type="button" class="route-option" data-server="devDirect" role="option" title="play.hornyjail.space">
+                    <button type="button" class="route-option" data-server="devDirect" data-game="orbitalis" role="option" title="play.hornyjail.space">
                       <span class="route-dot" data-dot="devDirect"></span>
                       <span class="route-opt-name">DEV · прямой</span>
                       <span class="route-ms" id="ms-devDirect">-</span>
                     </button>
-                    <button type="button" class="route-option" data-server="devProxy" role="option" title="proxy.hornyjail.space">
+                    <button type="button" class="route-option" data-server="devProxy" data-game="orbitalis" role="option" title="proxy.hornyjail.space">
                       <span class="route-dot" data-dot="devProxy"></span>
                       <span class="route-opt-name">DEV · прокси</span>
                       <span class="route-ms" id="ms-devProxy">-</span>
+                    </button>
+                    <button type="button" class="route-option" data-server="grimDirect" data-game="grimrock" role="option" title="play.hornyjail.space">
+                      <span class="route-dot" data-dot="grimDirect"></span>
+                      <span class="route-opt-name">Прямой</span>
+                      <span class="route-ms" id="ms-grimDirect">-</span>
+                    </button>
+                    <button type="button" class="route-option" data-server="grimProxy" data-game="grimrock" role="option" title="proxy.hornyjail.space">
+                      <span class="route-dot" data-dot="grimProxy"></span>
+                      <span class="route-opt-name">Прокси</span>
+                      <span class="route-ms" id="ms-grimProxy">-</span>
                     </button>
                   </div>
                 </div>
@@ -149,7 +178,7 @@
                 <div class="status-card-kind">
                   <span class="status-kind-badge is-main" id="status-kind-badge">основной</span>
                 </div>
-                <div class="status-card-title">Сейчас на станции</div>
+                <div class="status-card-title" id="status-card-title">Сейчас на станции</div>
                 <div class="status-line" id="status-line">Загрузка статуса…</div>
               </div>
             </aside>
@@ -291,19 +320,18 @@
                 <p class="panel-note" id="music-status-note">Войди и привяжи ckey</p>
               </div>
               <div class="music-toolbar-actions">
-                <input type="search" id="music-search" class="music-search" placeholder="поиск…" />
-                <button type="button" class="tool-btn" id="music-upload-btn">загрузить</button>
+                <input type="text" id="music-search" class="music-search" placeholder="поиск…" autocomplete="off" spellcheck="false" />
+                <input type="url" id="music-import-url" class="music-search music-import-url" placeholder="ссылка: YouTube / Spotify / Яндекс…" autocomplete="off" spellcheck="false" />
+                <button type="button" class="tool-btn" id="music-import-btn">по ссылке</button>
+                <button type="button" class="tool-btn" id="music-upload-btn">файл</button>
               </div>
             </div>
-            <div class="music-tabs" role="tablist">
+              <div class="music-tabs" role="tablist">
               <button type="button" class="logs-tab active" data-music-tab="mine">
                 Моя <span class="music-tab-count" id="music-count-mine">0</span>
               </button>
               <button type="button" class="logs-tab" data-music-tab="public">
                 Общая <span class="music-tab-count" id="music-count-public">0</span>
-              </button>
-              <button type="button" class="logs-tab" data-music-tab="playlist">
-                Плейлист <span class="music-tab-count" id="music-count-playlist">0</span>
               </button>
             </div>
             <div id="music-body" class="music-body"></div>

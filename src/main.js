@@ -9,7 +9,7 @@ const https = require("https");
 const { URL } = require("url");
 const { execFile, spawn } = require("child_process");
 const { getNewsFeeds } = require("./newsService");
-const { topicRttMs } = require("./byondProbe");
+const { topicRttMs, topicRequest, parseByondParams } = require("./byondProbe");
 const {
   isByondNoAdPatched,
   buildPatchedBuffers,
@@ -45,9 +45,13 @@ const {
   musicPlaylistPut,
   musicDeleteTrack,
   musicPatchTrack,
+  musicImportUrl,
   musicUpload,
   musicDownloadToTemp,
 } = require("./musicClient");
+const { lookupIpv4First, lookupAsync } = require("./hostResolve");
+const gameSession = require("./gameSession");
+const discordPresence = require("./discordPresence");
 
 const dnsLookup = dns.promises.lookup;
 try {
@@ -56,16 +60,155 @@ try {
   // older Node
 }
 const PROTOCOL = "orbitalis";
+const APPLY_UPDATE_FLAG = "--orbitalis-apply-update";
 const AUTH_CONFIG = loadAuthConfig();
 const LOGS_CONFIG = loadLogsConfig();
 const MUSIC_CONFIG = loadMusicConfig();
 
 let mainWindow = null;
+const LAUNCHER_STARTED_AT = Date.now();
+const DISCORD_CLIENT_ID =
+  AUTH_CONFIG.discordClientId || "1052259698457464926";
+let launchInFlight = false;
+let presenceContext = { game: "orbitalis", view: "worlds" };
+const lastStatusByKind = {};
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseApplyUpdateArgs(argv) {
+  const args = Array.isArray(argv) ? argv : [];
+  if (!args.includes(APPLY_UPDATE_FLAG)) {
+    return null;
+  }
+  const read = (prefix) => {
+    const hit = args.find((a) => String(a).startsWith(prefix));
+    return hit ? String(hit).slice(prefix.length) : "";
+  };
+  const pid = Number(read("--orbitalis-update-pid="));
+  const targetPath = read("--orbitalis-update-target=");
+  const sourcePath = read("--orbitalis-update-source=");
+  if (!Number.isFinite(pid) || pid <= 0 || !targetPath || !sourcePath) {
+    return null;
+  }
+  return { pid, targetPath, sourcePath };
+}
+
+function pidExists(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForPidExit(pid, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!pidExists(pid)) {
+      return true;
+    }
+    await sleep(400);
+  }
+  try {
+    process.kill(pid);
+  } catch {
+    // ignore
+  }
+  await sleep(1000);
+  return !pidExists(pid);
+}
+
+function appendUpdateLog(logPath, message) {
+  try {
+    const line = `[${new Date().toISOString()}] ${message}\r\n`;
+    fs.appendFileSync(logPath, line, "utf8");
+  } catch {
+    // ignore
+  }
+}
+
+async function runApplyUpdate({ pid, targetPath, sourcePath }) {
+  const logPath = path.join(
+    app.getPath("temp"),
+    `orbitalis-update-apply-${Date.now()}.log`
+  );
+  appendUpdateLog(logPath, `start pid=${pid}`);
+  appendUpdateLog(logPath, `source=${sourcePath}`);
+  appendUpdateLog(logPath, `target=${targetPath}`);
+
+  await waitForPidExit(pid, 90_000);
+  appendUpdateLog(logPath, "pid_exited");
+
+  if (!fs.existsSync(sourcePath)) {
+    appendUpdateLog(logPath, "ERROR missing source exe");
+    return { ok: false, logPath };
+  }
+
+  const oldPath = `${targetPath}.old`;
+  let replaced = false;
+  for (let i = 1; i <= 25; i += 1) {
+    try {
+      if (fs.existsSync(oldPath)) {
+        fs.unlinkSync(oldPath);
+      }
+      if (fs.existsSync(targetPath)) {
+        fs.renameSync(targetPath, oldPath);
+      }
+      fs.copyFileSync(sourcePath, targetPath);
+      const newLen = fs.statSync(sourcePath).size;
+      const curLen = fs.statSync(targetPath).size;
+      if (newLen === curLen) {
+        replaced = true;
+        appendUpdateLog(logPath, `replaced ok attempt=${i}`);
+        break;
+      }
+    } catch (error) {
+      appendUpdateLog(
+        logPath,
+        `replace fail attempt=${i} ${error?.message || error}`
+      );
+    }
+    await sleep(1000);
+  }
+
+  const launchPath = replaced ? targetPath : sourcePath;
+  appendUpdateLog(logPath, `launch=${launchPath}`);
+  try {
+    spawn(launchPath, [], {
+      detached: true,
+      stdio: "ignore",
+      cwd: path.dirname(launchPath),
+    }).unref();
+  } catch (error) {
+    appendUpdateLog(logPath, `launch fail ${error?.message || error}`);
+  }
+
+  if (replaced) {
+    try {
+      fs.unlinkSync(sourcePath);
+    } catch {
+      // ignore
+    }
+    try {
+      fs.unlinkSync(oldPath);
+    } catch {
+      // ignore
+    }
+  }
+  appendUpdateLog(logPath, "done");
+  return { ok: replaced, logPath };
+}
+
+const pendingApplyUpdate = parseApplyUpdateArgs(process.argv);
 
 const SERVERS = {
   mainDirect: {
     id: "mainDirect",
     kind: "main",
+    game: "orbitalis",
     route: "direct",
     label: "Прямой вход",
     labelEn: "Direct",
@@ -77,6 +220,7 @@ const SERVERS = {
   mainProxy: {
     id: "mainProxy",
     kind: "main",
+    game: "orbitalis",
     route: "proxy",
     label: "Через прокси",
     labelEn: "Proxy",
@@ -88,6 +232,7 @@ const SERVERS = {
   devDirect: {
     id: "devDirect",
     kind: "dev",
+    game: "orbitalis",
     route: "direct",
     label: "DEV прямой",
     labelEn: "DEV Direct",
@@ -99,6 +244,7 @@ const SERVERS = {
   devProxy: {
     id: "devProxy",
     kind: "dev",
+    game: "orbitalis",
     route: "proxy",
     label: "DEV прокси",
     labelEn: "DEV Proxy",
@@ -107,7 +253,102 @@ const SERVERS = {
     url: "byond://proxy.hornyjail.space:41080",
     hint: "Тестовый сервер через прокси.",
   },
+  grimDirect: {
+    id: "grimDirect",
+    kind: "grim",
+    game: "grimrock",
+    route: "direct",
+    label: "Grimrock прямой",
+    labelEn: "Grimrock Direct",
+    host: "play.hornyjail.space",
+    port: 41100,
+    url: "byond://play.hornyjail.space:41100",
+    hint: "Рога. Прямой вход.",
+  },
+  grimProxy: {
+    id: "grimProxy",
+    kind: "grim",
+    game: "grimrock",
+    route: "proxy",
+    label: "Grimrock прокси",
+    labelEn: "Grimrock Proxy",
+    host: "proxy.hornyjail.space",
+    port: 41100,
+    url: "byond://proxy.hornyjail.space:41100",
+    hint: "Рога через Германию. Для UA и кого режет прямой маршрут.",
+  },
 };
+
+function gameIdOf(server) {
+  if (!server) {
+    return "orbitalis";
+  }
+  if (server.game) {
+    return server.game;
+  }
+  return server.kind === "grim" ? "grimrock" : "orbitalis";
+}
+
+function presenceGameOf(server, fallbackGame) {
+  if (server?.kind === "dev") {
+    return "dev";
+  }
+  const game = server ? gameIdOf(server) : fallbackGame;
+  if (game === "grimrock") {
+    return "grimrock";
+  }
+  if (game === "dev") {
+    return "dev";
+  }
+  return "orbitalis";
+}
+
+function statusKindOfSession(session) {
+  const server = SERVERS[session?.serverId];
+  if (server?.kind === "dev") {
+    return "dev";
+  }
+  if (server?.kind === "grim" || session?.game === "grimrock") {
+    return "grim";
+  }
+  return "main";
+}
+
+function rememberStatusPayload(kind, payload) {
+  if (payload?.ok) {
+    lastStatusByKind[kind] = payload;
+  }
+}
+
+function refreshDiscordPresence() {
+  const session = gameSession.getSession();
+  if (session.running || session.launching) {
+    const server = SERVERS[session.serverId];
+    const kind = statusKindOfSession(session);
+    const payload = lastStatusByKind[kind];
+    discordPresence.setActivity(
+      discordPresence.buildPlayingActivity({
+        game: presenceGameOf(server, session.game),
+        label: session.label,
+        status: payload?.ok ? payload.status : null,
+        startedAt: session.startedAt || LAUNCHER_STARTED_AT,
+      })
+    );
+    return;
+  }
+  discordPresence.setActivity(
+    discordPresence.buildLauncherActivity({
+      game: presenceContext.game,
+      view: presenceContext.view,
+      startedAt: LAUNCHER_STARTED_AT,
+    })
+  );
+}
+
+function emitGameSession(session) {
+  sendToRenderer("game-session", session || gameSession.getSession());
+  refreshDiscordPresence();
+}
 
 const LINKS = {
   wiki: "https://mediawiki.hornyjail.space/",
@@ -191,17 +432,56 @@ function focusMainWindow() {
   mainWindow.focus();
 }
 
+function cacheAuthUser(user) {
+  if (!user) {
+    writePrefs({ lastAuthUser: null });
+    return;
+  }
+  if (user.provisional) return;
+  const id = user.id || null;
+  const avatar = user.avatar || null;
+  const avatarUrl =
+    user.avatarUrl ||
+    (id && avatar
+      ? `https://cdn.discordapp.com/avatars/${id}/${avatar}.png`
+      : null);
+  writePrefs({
+    lastAuthUser: {
+      id,
+      username: user.username || null,
+      globalName: user.globalName || user.global_name || null,
+      avatar,
+      avatarUrl,
+      inGuild: Boolean(user.inGuild),
+    },
+  });
+}
+
+function provisionalAuthUser(cached) {
+  if (cached && cached.id) return { ...cached, provisional: !cached.username };
+  return {
+    id: "session",
+    username: "Discord",
+    globalName: "Аккаунт",
+    provisional: true,
+  };
+}
+
 async function resolveAuthUser() {
   const token = readSessionToken(app.getPath("userData"));
   if (!token || !AUTH_CONFIG.authApiUrl) {
     return { user: null, configured: Boolean(AUTH_CONFIG.authApiUrl) };
   }
   try {
-    const result = await fetchMe(AUTH_CONFIG.authApiUrl, token);
+    const result = await fetchMe(AUTH_CONFIG.authApiUrl, token, {
+      timeoutMs: 6000,
+    });
     if (!result.ok) {
       clearSessionToken(app.getPath("userData"));
+      cacheAuthUser(null);
       return { user: null, configured: true };
     }
+    cacheAuthUser(result.user);
     return { user: result.user, configured: true, expiresAt: result.expiresAt };
   } catch {
     return { user: null, configured: true, offline: true };
@@ -221,6 +501,7 @@ async function handleAuthProtocolUrl(urlString) {
       sendToRenderer("auth-changed", { user: null, error: "session_invalid" });
       return { ok: false, error: "session_invalid" };
     }
+    cacheAuthUser(result.user);
     sendToRenderer("auth-changed", {
       user: result.user,
       expiresAt: result.expiresAt,
@@ -248,17 +529,26 @@ function registerProtocolClient() {
   }
 }
 
-const gotLock = app.requestSingleInstanceLock();
-if (!gotLock) {
-  app.quit();
+if (pendingApplyUpdate) {
+  // Apply mode must not take the single-instance lock or open UI.
+  app
+    .whenReady()
+    .then(() => runApplyUpdate(pendingApplyUpdate))
+    .catch(() => {})
+    .finally(() => app.exit(0));
 } else {
-  app.on("second-instance", (_event, argv) => {
-    const url = argv.find((arg) => String(arg).startsWith(`${PROTOCOL}://`));
-    if (url) {
-      handleAuthProtocolUrl(url);
-    }
-    focusMainWindow();
-  });
+  const gotLock = app.requestSingleInstanceLock();
+  if (!gotLock) {
+    app.quit();
+  } else {
+    app.on("second-instance", (_event, argv) => {
+      const url = argv.find((arg) => String(arg).startsWith(`${PROTOCOL}://`));
+      if (url) {
+        handleAuthProtocolUrl(url);
+      }
+      focusMainWindow();
+    });
+  }
 }
 
 app.on("open-url", (event, url) => {
@@ -565,27 +855,27 @@ function httpTtfbMs(ip, port = 50080, timeoutMs = 6000) {
   });
 }
 
-async function probeServer(server, samples = 3) {
+async function probeServer(server, samples = 1) {
   const { host, port, route } = server;
   let ip;
   try {
-    const looked = await dnsLookup(host, { all: false });
+    // Timed DNS + static fallback — avoids multi-second EAI_AGAIN stalls.
+    const looked = await lookupAsync(host, 1000);
     ip = looked.address;
   } catch {
     return { ok: false, ms: null, host, port, ip: null, method: null };
   }
 
-  // Warmup TCP
-  await tcpConnectMs(ip, port);
-
   // Direct: Topic RTT (real DD), not bare TCP accept (can look like 1-5ms falsely).
   if (route === "direct") {
     const topicSamples = [];
     for (let i = 0; i < samples; i += 1) {
-      const ms = await topicRttMs(ip, port);
-      if (ms != null) {
-        topicSamples.push(ms);
+      const ms = await topicRttMs(ip, port, 1200);
+      if (ms == null) {
+        // Fail-fast: DD likely doesn't answer Topic — don't burn more timeouts.
+        break;
       }
+      topicSamples.push(ms);
     }
     if (topicSamples.length) {
       return {
@@ -598,12 +888,14 @@ async function probeServer(server, samples = 3) {
         samples: topicSamples,
       };
     }
-    // Fallback TCP if Topic blocked
+    // Fallback TCP if Topic blocked / unsupported
     const tcpSamples = [];
     for (let i = 0; i < samples; i += 1) {
-      const ms = await tcpConnectMs(ip, port);
+      const ms = await tcpConnectMs(ip, port, 1500);
       if (ms != null) {
         tcpSamples.push(ms);
+      } else {
+        break;
       }
     }
     if (!tcpSamples.length) {
@@ -622,9 +914,11 @@ async function probeServer(server, samples = 3) {
 
   const tcpSamples = [];
   for (let i = 0; i < samples; i += 1) {
-    const ms = await tcpConnectMs(ip, port);
+    const ms = await tcpConnectMs(ip, port, 1500);
     if (ms != null) {
       tcpSamples.push(ms);
+    } else {
+      break;
     }
   }
 
@@ -638,7 +932,7 @@ async function probeServer(server, samples = 3) {
 
   // Proxy socat accepts in Germany immediately - TCP connect is only edge RTT.
   // Prefer HTTP through the same proxy hop (full DE->origin path).
-  const httpMs = await httpTtfbMs(ip, 50080);
+  const httpMs = await httpTtfbMs(ip, 50080, 2500);
   if (httpMs != null && httpMs >= edgeMs) {
     ms = httpMs;
     method = "http-path";
@@ -661,6 +955,7 @@ function applyProxyPathEstimate(results) {
   const pairs = [
     ["mainProxy", "mainDirect"],
     ["devProxy", "devDirect"],
+    ["grimProxy", "grimDirect"],
   ];
   for (const [proxyId, directId] of pairs) {
     const proxy = results[proxyId];
@@ -676,58 +971,212 @@ function applyProxyPathEstimate(results) {
   }
 }
 
-function recommendFromProbes(probes, prefs) {
-  const direct = probes.mainDirect;
-  const proxy = probes.mainProxy;
+function recommendRoute(probes, prefs, directId, proxyId) {
+  const direct = probes[directId];
+  const proxy = probes[proxyId];
+  const lastId = prefs.lastServerId;
+  const lastIsPair = lastId === directId || lastId === proxyId;
+  const savedId = prefs.lastServerByGame?.[gameIdOf(SERVERS[directId])];
+  const savedIsPair = savedId === directId || savedId === proxyId;
 
-  if (prefs.preferredRoute === "proxy") {
-    return "mainProxy";
+  if (prefs.preferredRoute === "proxy" && proxy?.ok) {
+    return proxyId;
   }
-  if (prefs.preferredRoute === "direct") {
-    return "mainDirect";
+  if (prefs.preferredRoute === "direct" && direct?.ok) {
+    return directId;
   }
-  if (prefs.lastServerId && SERVERS[prefs.lastServerId]?.kind === "main") {
-    const last = probes[prefs.lastServerId];
-    if (last?.ok) {
-      return prefs.lastServerId;
-    }
+  if (lastIsPair && probes[lastId]?.ok) {
+    return lastId;
+  }
+  if (savedIsPair && probes[savedId]?.ok) {
+    return savedId;
   }
   if (direct?.ok && proxy?.ok) {
-    return direct.ms <= proxy.ms * 1.15 ? "mainDirect" : "mainProxy";
+    return direct.ms <= proxy.ms * 1.15 ? directId : proxyId;
   }
   if (direct?.ok) {
-    return "mainDirect";
+    return directId;
   }
   if (proxy?.ok) {
-    return "mainProxy";
+    return proxyId;
   }
-  return prefs.lastServerId === "mainProxy" ? "mainProxy" : "mainDirect";
+  if (lastIsPair) {
+    return lastId;
+  }
+  return directId;
 }
 
-app.whenReady().then(() => {
-  cleanupStaleUpdaters();
-  registerProtocolClient();
-  createWindow();
+function recommendFromProbes(probes, prefs) {
+  const byGame = {
+    orbitalis: recommendRoute(probes, prefs, "mainDirect", "mainProxy"),
+    grimrock: recommendRoute(probes, prefs, "grimDirect", "grimProxy"),
+  };
+  const lastGame = gameIdOf(SERVERS[prefs.lastServerId]);
+  return {
+    recommendedId: byGame[lastGame] || byGame.orbitalis,
+    recommendedByGame: byGame,
+  };
+}
 
-  const bootUrl = process.argv.find((arg) =>
-    String(arg).startsWith(`${PROTOCOL}://`)
-  );
-  if (bootUrl) {
-    handleAuthProtocolUrl(bootUrl);
+function toIntOrNull(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function topicStatusToPayload(raw, kind, host, port) {
+  if (raw == null) {
+    return null;
   }
+  if (typeof raw === "number") {
+    return {
+      ok: true,
+      kind,
+      host,
+      port,
+      source: "topic",
+      status: {
+        players: Math.round(raw),
+        playing: Math.round(raw),
+        mapName: "-",
+        enter: true,
+      },
+    };
+  }
+  const text = String(raw).trim();
+  if (!text || /commskey|bad key|disabled/i.test(text)) {
+    return null;
+  }
+  const params = parseByondParams(text);
+  const players = toIntOrNull(params.players);
+  if (players == null && !params.map_name && !params.version) {
+    return null;
+  }
+  const gamestate = toIntOrNull(params.gamestate);
+  const roundDur = toIntOrNull(params.round_duration);
+  return {
+    ok: true,
+    kind,
+    host,
+    port,
+    source: "topic",
+    status: {
+      players: players ?? 0,
+      playing: toIntOrNull(params.active_players) ?? players ?? 0,
+      mapName: params.map_name || "-",
+      roundId: params.round_id || "",
+      // Ratwood/TG Topic round_duration is already seconds; renderer expects ds.
+      roundDurationSec: roundDur == null ? null : roundDur * 10,
+      enter:
+        params.enter == null
+          ? true
+          : params.enter === "1" || params.enter === "true",
+      gamestate,
+      mode: params.mode || "",
+    },
+  };
+}
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+async function fetchTopicServerStatus(server, kind) {
+  try {
+    const looked = await lookupAsync(server.host);
+    const ip = looked?.address;
+    if (!ip) {
+      return { ok: false, kind, error: "dns_failed" };
+    }
+    const raw = await topicRequest(ip, server.port, "status", 3500);
+    const payload = topicStatusToPayload(raw, kind, server.host, server.port);
+    if (payload) {
+      return payload;
+    }
+    const playing = await topicRequest(ip, server.port, "playing", 2000);
+    const fromPlaying = topicStatusToPayload(
+      playing,
+      kind,
+      server.host,
+      server.port
+    );
+    if (fromPlaying) {
+      return fromPlaying;
+    }
+    const ping = await topicRequest(ip, server.port, "ping", 2000);
+    const fromPing = topicStatusToPayload(ping, kind, server.host, server.port);
+    if (fromPing) {
+      return fromPing;
+    }
+    const rawText = raw == null ? "" : String(raw);
+    let error = "status_unavailable";
+    if (/commskey|disabled/i.test(rawText)) {
+      error = "topic_locked";
+    } else if (/bad key/i.test(rawText)) {
+      error = "topic_bad_key";
+    }
+    return { ok: false, kind, error };
+  } catch (error) {
+    return {
+      ok: false,
+      kind,
+      error: error?.message ? error.message : String(error),
+    };
+  }
+}
+
+function authStatusMatchesKind(data, kind) {
+  if (!data?.ok) {
+    return false;
+  }
+  if (data.kind === kind) {
+    return true;
+  }
+  if (kind === "grim" && Number(data.port) === 41100) {
+    return true;
+  }
+  return false;
+}
+
+if (!pendingApplyUpdate) {
+  app.whenReady().then(() => {
+    cleanupStaleUpdaters();
+    registerProtocolClient();
+    createWindow();
+    discordPresence.start(DISCORD_CLIENT_ID, {
+      logPath: path.join(app.getPath("userData"), "discord-rpc.log"),
+    });
+    gameSession.startWatch((session) => emitGameSession(session));
+    try {
+      const cachedStatus = readPrefs().lastStatus || {};
+      for (const [kind, payload] of Object.entries(cachedStatus)) {
+        rememberStatusPayload(kind, payload);
+      }
+    } catch {
+      // ignore
+    }
+    refreshDiscordPresence();
+
+    const bootUrl = process.argv.find((arg) =>
+      String(arg).startsWith(`${PROTOCOL}://`)
+    );
+    if (bootUrl) {
+      handleAuthProtocolUrl(bootUrl);
+    }
+
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+      }
+    });
+  });
+
+  app.on("window-all-closed", () => {
+    if (process.platform !== "darwin") {
+      app.quit();
     }
   });
-});
 
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
-});
+  app.on("before-quit", () => {
+    gameSession.stopWatch();
+    discordPresence.stop();
+  });
+}
 
 function getReplaceableExePath() {
   // Portable builds run from %TEMP% extract; the real user-facing exe is here.
@@ -794,7 +1243,8 @@ function cleanupStaleUpdaters() {
     for (const entry of fs.readdirSync(tempDir)) {
       if (
         !/^orbitalis-apply-update-.*\.(cmd|ps1|vbs)$/i.test(entry) &&
-        !/^orbitalis-update-.*\.log$/i.test(entry)
+        !/^orbitalis-update-.*\.log$/i.test(entry) &&
+        !/^orbitalis-update-apply-.*\.log$/i.test(entry)
       ) {
         continue;
       }
@@ -813,108 +1263,29 @@ function cleanupStaleUpdaters() {
   }
 }
 
-function psSingleQuote(value) {
-  return `'${String(value).replace(/'/g, "''")}'`;
-}
-
 /**
- * Silent updater: VBS (window 0) → PowerShell Hidden.
- * No cmd/find/timeout - those flash console windows on Windows.
+ * Self-update without temp VBS/PowerShell (those look like Trojan.Alien to AV).
+ * Spawns the downloaded portable with --orbitalis-apply-update; it waits for
+ * this process to exit, replaces the target exe, then relaunches.
  */
-function writeHiddenUpdaterScript({ currentPid, currentPath, newPath }) {
-  const stamp = Date.now();
-  const ps1Path = path.join(
-    app.getPath("temp"),
-    `orbitalis-apply-update-${stamp}.ps1`
+function spawnApplyUpdateProcess({ currentPid, currentPath, newPath }) {
+  const child = spawn(
+    newPath,
+    [
+      APPLY_UPDATE_FLAG,
+      `--orbitalis-update-pid=${Number(currentPid)}`,
+      `--orbitalis-update-target=${currentPath}`,
+      `--orbitalis-update-source=${newPath}`,
+    ],
+    {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+      cwd: path.dirname(newPath),
+    }
   );
-  const vbsPath = path.join(
-    app.getPath("temp"),
-    `orbitalis-apply-update-${stamp}.vbs`
-  );
-  const logPath = path.join(
-    app.getPath("temp"),
-    `orbitalis-update-${stamp}.log`
-  );
-  const oldName = `${path.basename(currentPath)}.old`;
-  const oldPath = path.join(path.dirname(currentPath), oldName);
-
-  const ps1 = [
-    "$ErrorActionPreference = 'Continue'",
-    `$logPath = ${psSingleQuote(logPath)}`,
-    "function Write-UpdateLog([string]$msg) {",
-    "  $line = ('[{0}] {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $msg)",
-    "  Add-Content -LiteralPath $logPath -Value $line -Encoding UTF8",
-    "}",
-    `$targetPid = ${Number(currentPid)}`,
-    `$currentPath = ${psSingleQuote(currentPath)}`,
-    `$newPath = ${psSingleQuote(newPath)}`,
-    `$oldPath = ${psSingleQuote(oldPath)}`,
-    `$oldName = ${psSingleQuote(oldName)}`,
-    "Write-UpdateLog 'start'",
-    "Write-UpdateLog ('current=' + $currentPath)",
-    "Write-UpdateLog ('new=' + $newPath)",
-    "$deadline = (Get-Date).AddSeconds(90)",
-    "while (Get-Process -Id $targetPid -ErrorAction SilentlyContinue) {",
-    "  if ((Get-Date) -ge $deadline) {",
-    "    Write-UpdateLog 'force-kill launcher pid'",
-    "    Stop-Process -Id $targetPid -Force -ErrorAction SilentlyContinue",
-    "    break",
-    "  }",
-    "  Start-Sleep -Milliseconds 400",
-    "}",
-    "Write-UpdateLog 'pid_exited'",
-    "Get-Process -Name 'Orbitalis Launcher' -ErrorAction SilentlyContinue |",
-    "  Stop-Process -Force -ErrorAction SilentlyContinue",
-    "Start-Sleep -Seconds 1",
-    "if (-not (Test-Path -LiteralPath $newPath)) {",
-    "  Write-UpdateLog 'ERROR missing new exe'",
-    "  exit 1",
-    "}",
-    "$replaced = $false",
-    "for ($i = 1; $i -le 25; $i++) {",
-    "  try {",
-    "    if (Test-Path -LiteralPath $oldPath) {",
-    "      Remove-Item -LiteralPath $oldPath -Force -ErrorAction SilentlyContinue",
-    "    }",
-    "    if (Test-Path -LiteralPath $currentPath) {",
-    "      Rename-Item -LiteralPath $currentPath -NewName $oldName -Force -ErrorAction SilentlyContinue",
-    "    }",
-    "    Copy-Item -LiteralPath $newPath -Destination $currentPath -Force",
-    "    $newLen = (Get-Item -LiteralPath $newPath).Length",
-    "    $curLen = (Get-Item -LiteralPath $currentPath).Length",
-    "    if ($newLen -eq $curLen) {",
-    "      $replaced = $true",
-    "      Write-UpdateLog ('replaced ok attempt=' + $i)",
-    "      break",
-    "    }",
-    "  } catch {",
-    "    Write-UpdateLog ('replace fail attempt=' + $i + ' ' + $_.Exception.Message)",
-    "  }",
-    "  Start-Sleep -Seconds 1",
-    "}",
-    "$launchPath = if ($replaced) { $currentPath } else { $newPath }",
-    "Write-UpdateLog ('launch=' + $launchPath)",
-    "$wd = Split-Path -Parent $launchPath",
-    "Start-Process -FilePath $launchPath -WorkingDirectory $wd",
-    "if ($replaced) {",
-    "  Remove-Item -LiteralPath $newPath -Force -ErrorAction SilentlyContinue",
-    "  Remove-Item -LiteralPath $oldPath -Force -ErrorAction SilentlyContinue",
-    "}",
-    "Write-UpdateLog 'done'",
-    "",
-  ].join("\r\n");
-
-  // WScript.Run style 0 = completely hidden (no console flashes from children).
-  const ps1ForVbs = ps1Path.replace(/"/g, '""');
-  const vbs = [
-    'Set sh = CreateObject("WScript.Shell")',
-    `sh.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""${ps1ForVbs}""", 0, False`,
-    "",
-  ].join("\r\n");
-
-  fs.writeFileSync(ps1Path, ps1, "utf8");
-  fs.writeFileSync(vbsPath, vbs, "utf8");
-  return { vbsPath, ps1Path, logPath };
+  child.unref();
+  return child;
 }
 
 ipcMain.handle("install-update", async (_event, payload) => {
@@ -948,12 +1319,31 @@ ipcMain.handle("install-update", async (_event, payload) => {
       ? resolveUpdateStagingPath(currentPath, safeVersion)
       : path.join(app.getPath("temp"), `OrbitalisLauncher-${safeVersion}.exe`);
 
-    await downloadFile(url, stagingPath, (progress) => {
-      sendToRenderer("update-download-progress", {
-        version: safeVersion,
-        ...progress,
-      });
-    });
+    const mirrors = launcherMirrorUrls(url);
+    let downloaded = false;
+    let lastDownloadError = null;
+    for (const mirror of mirrors) {
+      try {
+        await downloadFile(mirror, stagingPath, (progress) => {
+          sendToRenderer("update-download-progress", {
+            version: safeVersion,
+            ...progress,
+          });
+        });
+        downloaded = true;
+        break;
+      } catch (error) {
+        lastDownloadError = error;
+        try {
+          fs.unlinkSync(stagingPath);
+        } catch {
+          // ignore
+        }
+      }
+    }
+    if (!downloaded) {
+      throw lastDownloadError || new Error("download_failed");
+    }
 
     if (!packaged) {
       const result = await dialog.showMessageBox(mainWindow, {
@@ -971,21 +1361,14 @@ ipcMain.handle("install-update", async (_event, payload) => {
       return { ok: true, path: stagingPath, replaced: false };
     }
 
-    const { vbsPath, logPath } = writeHiddenUpdaterScript({
+    spawnApplyUpdateProcess({
       currentPid: process.pid,
       currentPath,
       newPath: stagingPath,
     });
 
-    spawn("wscript.exe", ["//nologo", "//B", vbsPath], {
-      detached: true,
-      stdio: "ignore",
-      windowsHide: true,
-      cwd: path.dirname(vbsPath),
-    }).unref();
-
     setTimeout(() => app.exit(0), 500);
-    return { ok: true, path: currentPath, replaced: true, logPath, vbsPath };
+    return { ok: true, path: currentPath, replaced: true };
   } catch (error) {
     return {
       ok: false,
@@ -1012,8 +1395,45 @@ function readByondVersionLabel(byondPath) {
 ipcMain.handle("get-bootstrap", async () => {
   const byondPath = findByond();
   const prefs = readPrefs();
-  const auth = await resolveAuthUser();
   const patchStatus = getByondPatchStatus();
+  const token = readSessionToken(app.getPath("userData"));
+  const cachedUser = prefs.lastAuthUser || null;
+  // Token alone means "still logged in" — never flash logout because /me is slow.
+  const bootUser = token ? cachedUser || provisionalAuthUser(cachedUser) : null;
+
+  // Never block window paint on auth/DNS — refresh in background.
+  if (token && AUTH_CONFIG.authApiUrl) {
+    resolveAuthUser()
+      .then((real) => {
+        if (real.user) {
+          sendToRenderer("auth-changed", {
+            user: real.user,
+            expiresAt: real.expiresAt,
+            silent: true,
+          });
+          return;
+        }
+        if (real.offline) {
+          // Keep session visible; auth API is flaky/timeout-prone on some routes.
+          sendToRenderer("auth-changed", {
+            user: cachedUser || provisionalAuthUser(cachedUser),
+            offline: true,
+            silent: true,
+          });
+          return;
+        }
+        // Real expiry / invalid session.
+        sendToRenderer("auth-changed", { user: null, silent: true });
+      })
+      .catch(() => {
+        sendToRenderer("auth-changed", {
+          user: cachedUser || provisionalAuthUser(cachedUser),
+          offline: true,
+          silent: true,
+        });
+      });
+  }
+
   return {
     servers: SERVERS,
     links: LINKS,
@@ -1024,10 +1444,11 @@ ipcMain.handle("get-bootstrap", async () => {
     byondPatched: Boolean(patchStatus.patched),
     launcherVersion: app.getVersion(),
     auth: {
-      configured: auth.configured,
+      configured: Boolean(AUTH_CONFIG.authApiUrl),
       apiUrl: AUTH_CONFIG.authApiUrl || null,
-      user: auth.user,
-      offline: Boolean(auth.offline),
+      user: bootUser,
+      offline: false,
+      pending: Boolean(token),
     },
     logs: {
       configured: Boolean(LOGS_CONFIG.logsApiUrl),
@@ -1037,6 +1458,9 @@ ipcMain.handle("get-bootstrap", async () => {
       configured: Boolean(MUSIC_CONFIG.musicApiUrl),
       apiUrl: MUSIC_CONFIG.musicApiUrl || null,
     },
+    lastProbes: prefs.lastProbes || null,
+    lastStatus: prefs.lastStatus || null,
+    gameSession: gameSession.getSession(),
   };
 });
 
@@ -1561,6 +1985,18 @@ async function buildConnectionDiagReport() {
     lines.push("main: both routes FAIL - network/firewall or server down");
   }
 
+  const grimDirect = probes.grimDirect;
+  const grimProxy = probes.grimProxy;
+  if (grimDirect?.ok && grimProxy?.ok) {
+    lines.push("grimrock: both direct and proxy reachable");
+  } else if (grimDirect?.ok) {
+    lines.push("grimrock: direct OK, proxy FAIL - check DE ss13-proxy-grim :41100");
+  } else if (grimProxy?.ok) {
+    lines.push("grimrock: proxy OK, direct FAIL - use proxy route");
+  } else {
+    lines.push("grimrock: both routes FAIL - network/firewall or server down");
+  }
+
   return {
     ok: true,
     generatedAt: stamp,
@@ -1607,9 +2043,20 @@ ipcMain.handle("probe-servers", async () => {
   );
   applyProxyPathEstimate(results);
   const prefs = readPrefs();
+  const compact = {};
+  for (const [id, probe] of Object.entries(results)) {
+    compact[id] = {
+      ok: Boolean(probe?.ok),
+      ms: probe?.ms ?? null,
+      method: probe?.method || null,
+    };
+  }
+  writePrefs({ lastProbes: compact });
+  const rec = recommendFromProbes(results, prefs);
   return {
     probes: results,
-    recommendedId: recommendFromProbes(results, prefs),
+    recommendedId: rec.recommendedId,
+    recommendedByGame: rec.recommendedByGame,
   };
 });
 
@@ -1633,21 +2080,90 @@ ipcMain.handle("connect", async (_event, serverId) => {
   if (!server) {
     return { ok: false, error: "Unknown server" };
   }
+  if (launchInFlight) {
+    return { ok: false, error: "Запуск уже идёт" };
+  }
+
+  const live = await gameSession.poll();
+  if (live.running || live.launching) {
+    gameSession.rememberTarget({
+      serverId,
+      game: gameIdOf(server),
+      label: server.label,
+    });
+    let focused = { ok: false };
+    if (live.running) {
+      focused = await gameSession.focusDreamseeker();
+    }
+    emitGameSession();
+    return {
+      ok: true,
+      alreadyRunning: true,
+      launching: Boolean(live.launching && !live.running),
+      focused: Boolean(focused?.ok),
+      url: server.url,
+      label: server.label,
+      id: serverId,
+      session: gameSession.getSession(),
+    };
+  }
+
+  launchInFlight = true;
   try {
     const result = await launchByondUrl(server.url);
     writePrefs({
       lastServerId: serverId,
+      lastServerByGame: {
+        ...(readPrefs().lastServerByGame || {}),
+        [gameIdOf(server)]: serverId,
+      },
       preferredRoute: server.route,
       lastConnectedAt: Date.now(),
     });
-    return { ...result, url: server.url, label: server.label, id: serverId };
+    if (result.ok) {
+      gameSession.markLaunched({
+        serverId,
+        game: gameIdOf(server),
+        label: server.label,
+      });
+      emitGameSession();
+    }
+    return {
+      ...result,
+      url: server.url,
+      label: server.label,
+      id: serverId,
+      session: gameSession.getSession(),
+    };
   } catch (error) {
     return {
       ok: false,
       error: error?.message ? error.message : String(error),
       url: server.url,
     };
+  } finally {
+    launchInFlight = false;
   }
+});
+
+ipcMain.handle("get-game-session", async () => gameSession.getSession());
+
+ipcMain.handle("focus-game", async () => {
+  const live = await gameSession.poll();
+  if (!live.running) {
+    return { ok: false, running: false, error: "Игра не запущена" };
+  }
+  const focused = await gameSession.focusDreamseeker();
+  emitGameSession();
+  return { ok: Boolean(focused?.ok), running: true, ...focused, session: live };
+});
+
+ipcMain.handle("presence-context", async (_event, payload) => {
+  const game = payload?.game === "grimrock" ? "grimrock" : "orbitalis";
+  const view = payload?.view === "home" ? "home" : "worlds";
+  presenceContext = { game, view };
+  refreshDiscordPresence();
+  return { ok: true };
 });
 
 ipcMain.handle("open-external", async (_event, url) => {
@@ -1684,9 +2200,35 @@ ipcMain.handle("open-discord", async (_event, url) => {
 });
 
 const UPDATE_MANIFEST_URLS = [
-  "https://devassets.hornyjail.space/launcher/version.json",
+  // DE edge cache first (faster / more stable for many players).
   "http://proxy.hornyjail.space:50080/launcher/version.json",
+  "https://devassets.hornyjail.space/launcher/version.json",
 ];
+
+function launcherMirrorUrls(primaryUrl) {
+  const urls = [];
+  const push = (u) => {
+    if (u && !urls.includes(u)) urls.push(u);
+  };
+  push(primaryUrl);
+  try {
+    const parsed = new URL(String(primaryUrl || ""));
+    const name = path.posix.basename(parsed.pathname);
+    if (name) {
+      push(`http://proxy.hornyjail.space:50080/launcher/${name}`);
+      push(`https://devassets.hornyjail.space/launcher/${name}`);
+    }
+  } catch {
+    // ignore
+  }
+  // Prefer DE mirror first when primary was UA HTTPS.
+  urls.sort((a, b) => {
+    const score = (u) =>
+      String(u).includes("proxy.hornyjail.space") ? 0 : 1;
+    return score(a) - score(b);
+  });
+  return urls;
+}
 
 function parseVersionParts(version) {
   return String(version || "0")
@@ -1720,6 +2262,8 @@ function fetchUrlJson(url, timeoutMs = 8000) {
         port: parsed.port || (parsed.protocol === "http:" ? 80 : 443),
         path: `${parsed.pathname}${parsed.search}`,
         method: "GET",
+        family: 4,
+        lookup: lookupIpv4First,
         headers: {
           Accept: "application/json",
           "User-Agent": `OrbitalisLauncher/${app.getVersion()}`,
@@ -1764,9 +2308,15 @@ function downloadFile(url, destPath, onProgress) {
     const lib = parsed.protocol === "http:" ? http : https;
     const file = fs.createWriteStream(destPath);
     const req = lib.get(
-      url,
       {
+        protocol: parsed.protocol,
+        hostname: parsed.hostname,
+        port: parsed.port || (parsed.protocol === "http:" ? 80 : 443),
+        path: `${parsed.pathname}${parsed.search}`,
+        family: 4,
+        lookup: lookupIpv4First,
         headers: { "User-Agent": `OrbitalisLauncher/${app.getVersion()}` },
+        timeout: 120000,
       },
       (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
@@ -1820,6 +2370,7 @@ function downloadFile(url, destPath, onProgress) {
         });
       }
     );
+    req.on("timeout", () => req.destroy(new Error("timeout")));
     req.on("error", (error) => {
       file.close();
       fs.unlink(destPath, () => {});
@@ -1895,6 +2446,7 @@ ipcMain.handle("auth-logout", async () => {
     await logoutRemote(AUTH_CONFIG.authApiUrl, token);
   }
   clearSessionToken(app.getPath("userData"));
+  cacheAuthUser(null);
   sendToRenderer("auth-changed", { user: null });
   return { ok: true };
 });
@@ -1902,21 +2454,47 @@ ipcMain.handle("auth-logout", async () => {
 ipcMain.handle("auth-refresh", async () => resolveAuthUser());
 
 ipcMain.handle("fetch-status", async (_event, kind) => {
-  if (!AUTH_CONFIG.authApiUrl) {
-    return { ok: false, error: "Auth API URL не настроен" };
+  const safeKind =
+    kind === "dev" ? "dev" : kind === "grim" ? "grim" : "main";
+
+  let payload;
+  if (safeKind === "grim") {
+    const topic = await fetchTopicServerStatus(SERVERS.grimDirect, "grim");
+    if (topic?.ok) {
+      payload = topic;
+    } else if (AUTH_CONFIG.authApiUrl) {
+      try {
+        const data = await fetchServerStatus(AUTH_CONFIG.authApiUrl, "grim");
+        if (authStatusMatchesKind(data, "grim")) {
+          payload = { ...data, kind: "grim" };
+        }
+      } catch {
+        // Topic is the source of truth for Grimrock until auth learns this instance.
+      }
+    }
+    if (!payload) {
+      payload = topic;
+    }
+  } else if (AUTH_CONFIG.authApiUrl) {
+    try {
+      payload = await fetchServerStatus(AUTH_CONFIG.authApiUrl, safeKind);
+    } catch (error) {
+      payload = {
+        ok: false,
+        kind: safeKind,
+        error: error?.message ? error.message : String(error),
+      };
+    }
+  } else {
+    payload = { ok: false, error: "Auth API URL не настроен" };
   }
-  try {
-    return await fetchServerStatus(AUTH_CONFIG.authApiUrl, kind);
-  } catch (error) {
-    return {
-      ok: false,
-      kind: kind === "dev" ? "dev" : "main",
-      error: error?.message ? error.message : String(error),
-    };
-  }
+
+  rememberStatusPayload(safeKind, payload);
+  refreshDiscordPresence();
+  return payload;
 });
 
-ipcMain.handle("fetch-player", async () => {
+ipcMain.handle("fetch-player", async (_event, kind) => {
   if (!AUTH_CONFIG.authApiUrl) {
     return { ok: false, error: "Auth API URL не настроен" };
   }
@@ -1925,7 +2503,7 @@ ipcMain.handle("fetch-player", async () => {
     return { ok: false, error: "unauthorized" };
   }
   try {
-    const result = await fetchPlayerCard(AUTH_CONFIG.authApiUrl, token);
+    const result = await fetchPlayerCard(AUTH_CONFIG.authApiUrl, token, kind);
     if (result.expired) {
       clearSessionToken(app.getPath("userData"));
       sendToRenderer("auth-changed", { user: null, error: "session_expired" });
@@ -2071,6 +2649,19 @@ ipcMain.handle("music-pick-and-upload", async (_event, meta = {}) => {
       trackName: meta.trackName || path.basename(filePath, path.extname(filePath)),
       trackAuthor: meta.trackAuthor || "Unknown artist",
       visibility: meta.visibility || "public",
+    })
+  );
+});
+
+ipcMain.handle("music-import-url", async (_event, payload = {}) => {
+  const sourceUrl = String(payload.url || "").trim();
+  if (!sourceUrl) return { ok: false, error: "url_required" };
+  return withMusicAuth((url, token) =>
+    musicImportUrl(url, token, {
+      url: sourceUrl,
+      trackName: payload.trackName,
+      trackAuthor: payload.trackAuthor,
+      visibility: payload.visibility || "public",
     })
   );
 });

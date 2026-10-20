@@ -1,0 +1,9 @@
+{"ts":"1782826775.924","cat":"game","msg":null}
+{"ts":"2026-03-15 12:00:00.000","cat":"GAME-ACCESS","msg":"Login: alice"}
+{"ts":"2026-03-15 12:00:05.000","cat":"GAME","msg":"'(dave)'/(Dave Nuke) has gained antag datum Traitor(/datum/antagonist/traitor)."}
+{"ts":"2026-03-15 12:10:00.000","cat":"GAME","msg":"ANTAG OBJ: dave/(Dave Nuke) as Traitor - Objective: Steal the captain's spare ID - SUCCESS"}
+{"ts":"2026-03-15 12:15:22.100","cat":"GAME-SAY","msg":"'(alice)'/(Alice Smith) (mob_12) says, \"Hello bridge\""}
+{"ts":"2026-03-15 12:15:30.200","cat":"GAME-OOC","msg":"'(bob)'/(Bob Jones): ooc test"}
+{"ts":"2026-03-15 12:20:00.000","cat":"GAME-TOPIC","msg":"topic spam should be stripped"}
+{"ts":"2026-03-15 12:25:00.000","cat":"GAME","msg":"'(carol)'/(Carol Lee) (mob_44) became a hermit. (Away Mission)"}
+{"ts":"2026-03-15 13:00:00.000","cat":"GAME","msg":"The round has ended."}

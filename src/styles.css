@@ -18,6 +18,22 @@
   --body: "Segoe UI", -apple-system, "Helvetica Neue", Arial, sans-serif;
 }
 
+@font-face {
+  font-family: "Blackmoor";
+  src: url("assets/blackmoor.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "New Rocker";
+  src: url("assets/newrocker.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -56,6 +72,7 @@ button {
   left: -50px;
   width: calc(100% + 100px);
   height: calc(100% + 100px);
+  transition: opacity 420ms ease;
 }
 
 .parallax-stars-small {
@@ -106,6 +123,20 @@ button {
     radial-gradient(ellipse at 85% 60%, rgba(50, 30, 60, 0.3) 0%, transparent 45%),
     radial-gradient(ellipse at 60% 70%, rgba(20, 40, 70, 0.35) 0%, transparent 55%);
   opacity: 0.7;
+}
+
+.parallax-grimrock {
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  background-color: #050303;
+  background-image: url("assets/grimrock-lobby.png");
+  background-repeat: no-repeat;
+  background-position: center center;
+  background-size: cover;
+  transition: opacity 420ms ease;
 }
 
 .parallax-gradient {
@@ -244,6 +275,39 @@ button {
   margin: 0;
 }
 
+.worlds-back {
+  appearance: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  padding: 9px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: var(--radius);
+  background: rgba(6, 6, 8, 0.72);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  transition: color 0.18s ease, background 0.18s ease, border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.worlds-back:hover {
+  color: #fff;
+  background: rgba(var(--accent-rgb), 0.16);
+  border-color: rgba(var(--accent-rgb), 0.55);
+  box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.18);
+}
+
 .brand-logo {
   width: 92px;
   height: 92px;
@@ -251,6 +315,10 @@ button {
   image-rendering: auto;
   filter: drop-shadow(0 0 24px rgba(var(--accent-rgb), 0.35))
     drop-shadow(0 8px 24px rgba(0, 0, 0, 0.5));
+}
+
+.brand-logo[hidden] {
+  display: none !important;
 }
 
 .lobby_title {
@@ -272,6 +340,129 @@ button {
   letter-spacing: 0.4em;
   text-transform: uppercase;
   padding-left: 0.4em;
+}
+
+/* ===== WORLD PICKER ===== */
+.view-worlds {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  animation: none;
+}
+
+.world-panel {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 32px 24px;
+  border: 0;
+  overflow: hidden;
+  color: inherit;
+  cursor: pointer;
+  text-align: center;
+  background: transparent;
+  font-weight: 400;
+  outline: none;
+}
+
+.world-panel:focus-visible {
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.28);
+}
+
+.world-panel-bg,
+.world-panel-veil {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.world-panel.is-orbitalis {
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.world-panel.is-grimrock {
+  background: #050303;
+}
+
+.world-panel.is-grimrock .world-panel-bg {
+  background: #050303 center center / auto 100% no-repeat
+    url("assets/grimrock-lobby.png");
+}
+
+.world-panel.is-grimrock .world-panel-veil {
+  background:
+    radial-gradient(
+      ellipse 80% 70% at 50% 50%,
+      rgba(0, 0, 0, 0.04) 0%,
+      rgba(0, 0, 0, 0.28) 100%
+    );
+}
+
+.world-panel-body {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  transition: transform 220ms ease;
+}
+
+.world-panel-name {
+  font-family: "Century Gothic", "Avant Garde", "Bahnschrift", "Segoe UI", sans-serif;
+  font-size: 34px;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  padding-left: 0.32em;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.6);
+}
+
+.world-panel-name.grim-name {
+  font-family: "Blackmoor", "New Rocker", Georgia, serif;
+  font-size: clamp(2.2rem, 7vw, 3.4rem);
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  padding-left: 0;
+  color: #f0e6d4;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.85);
+}
+
+.world-panel:hover .world-panel-body {
+  transform: translateY(-4px);
+}
+
+.view-worlds:hover .world-panel {
+  opacity: 0.78;
+}
+
+.view-worlds .world-panel:hover {
+  opacity: 1;
+}
+
+body.on-worlds .topbar,
+body.on-worlds .footer {
+  display: none !important;
+}
+
+body.on-worlds .stage {
+  padding: 0 !important;
+}
+
+body.on-worlds .parallax-grimrock {
+  opacity: 0;
+}
+
+body.on-worlds .parallax-gradient {
+  background: none;
 }
 
 .tool-btn {
@@ -373,8 +564,9 @@ button {
 }
 
 .view-home {
+  position: relative;
   width: 100%;
-  max-width: 1200px;
+  max-width: none;
   margin: 0 auto;
   overflow-x: hidden;
   overflow-y: auto;
@@ -665,6 +857,12 @@ button {
   background: rgba(242, 135, 74, 0.1);
 }
 
+.status-kind-badge.is-grim {
+  border-color: rgba(230, 212, 184, 0.4);
+  color: #f0e6d4;
+  background: rgba(196, 90, 90, 0.14);
+}
+
 .status-closed-badge {
   align-self: center;
   margin-left: 6px;
@@ -755,6 +953,20 @@ button {
   opacity: 0.65;
   cursor: wait;
   transform: none;
+}
+
+.play.is-running {
+  border-color: rgba(111, 219, 154, 0.55);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), 0 0 22px rgba(111, 219, 154, 0.12);
+}
+
+.play.is-running:hover {
+  border-color: rgba(111, 219, 154, 0.8);
+  box-shadow: 0 0 32px rgba(111, 219, 154, 0.18), 0 22px 56px rgba(0, 0, 0, 0.34);
+}
+
+.play.is-launching {
+  cursor: wait;
 }
 
 .play-icon {
@@ -867,6 +1079,12 @@ button {
   margin: 0;
   max-width: none;
   padding: 0 18px 14px;
+}
+
+.status-empty-note {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 /* Vertical stat rows inside the card */
@@ -1028,6 +1246,18 @@ button {
 
 .dropdown-menu[hidden] {
   display: none;
+}
+
+.route-option[data-game="grimrock"] {
+  display: none;
+}
+
+body.theme-grimrock .route-option[data-game="orbitalis"] {
+  display: none;
+}
+
+body.theme-grimrock .route-option[data-game="grimrock"] {
+  display: flex;
 }
 
 .route-option {
@@ -1854,9 +2084,21 @@ body.on-account .topbar-controls {
 
 .account-layout {
   display: grid;
-  grid-template-rows: auto 1fr;
   gap: 16px;
   align-content: start;
+}
+
+.account-server-tag {
+  justify-self: start;
+  padding: 4px 10px;
+  border-radius: var(--radius);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(var(--accent-rgb), 0.95);
+  border: 1px solid rgba(var(--accent-rgb), 0.35);
+  background: rgba(var(--accent-rgb), 0.1);
 }
 
 .account-top {
@@ -2350,15 +2592,13 @@ body.on-account .topbar-controls {
     margin: 0 18px;
   }
 
-  .brand-logo {
-    width: 96px;
-    height: 96px;
+  .world-panel-name {
+    font-size: 26px;
+    letter-spacing: 0.22em;
   }
 
-  .lobby_title {
-    font-size: 34px;
-    letter-spacing: 0.32em;
-    padding-left: 0.32em;
+  .world-panel-name.grim-name {
+    font-size: 36px;
   }
 
   .connect-grid {
@@ -2844,6 +3084,41 @@ body.on-music .stage {
   padding: 6px 10px;
   font: inherit;
   font-size: 12px;
+  outline: none !important;
+  outline-color: transparent;
+  box-shadow: none;
+  accent-color: #8cb4dc;
+  -webkit-appearance: none;
+  appearance: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.music-search:focus,
+.music-search:focus-visible,
+.music-import-url:focus,
+.music-import-url:focus-visible {
+  outline: none !important;
+  outline-color: transparent;
+  border-color: rgba(142, 180, 255, 0.55);
+  box-shadow: 0 0 0 1px rgba(142, 180, 255, 0.28);
+}
+
+.music-search:-webkit-autofill,
+.music-search:-webkit-autofill:hover,
+.music-search:-webkit-autofill:focus,
+.music-import-url:-webkit-autofill,
+.music-import-url:-webkit-autofill:hover,
+.music-import-url:-webkit-autofill:focus {
+  -webkit-text-fill-color: #e8eef8;
+  caret-color: #e8eef8;
+  border-color: rgba(142, 180, 255, 0.55);
+  box-shadow: 0 0 0 1000px rgba(12, 16, 28, 0.95) inset;
+  transition: background-color 99999s ease-out;
+}
+
+.music-import-url {
+  min-width: 220px;
+  flex: 1 1 220px;
 }
 
 .music-tabs {
@@ -3122,4 +3397,118 @@ body.on-music .stage {
   .music-player-vol-wrap {
     grid-column: 1 / -1;
   }
+}
+
+/* ===== GRIMROCK THEME ===== */
+body.theme-grimrock {
+  --bg: #050303;
+  --ink: rgba(240, 230, 212, 0.94);
+  --muted: rgba(232, 220, 200, 0.48);
+  --line: rgba(230, 212, 184, 0.16);
+  --panel: rgba(8, 6, 5, 0.78);
+  --glass: rgba(230, 212, 184, 0.04);
+  --glass-border: rgba(230, 212, 184, 0.18);
+  --accent: #e8dcc8;
+  --accent-rgb: 232, 220, 200;
+  --accent-2: #c45c4a;
+  --glow: rgba(196, 90, 90, 0.18);
+}
+
+body.theme-grimrock .parallax-container {
+  background: #050303;
+}
+
+body.theme-grimrock .parallax-nebula,
+body.theme-grimrock .parallax-stars-small,
+body.theme-grimrock .parallax-stars-big {
+  opacity: 0;
+}
+
+body.theme-grimrock .parallax-grimrock {
+  opacity: 1;
+}
+
+body.theme-grimrock .parallax-gradient {
+  background:
+    linear-gradient(
+      to right,
+      rgba(5, 3, 3, 0.88) 0%,
+      rgba(5, 3, 3, 0.62) 26%,
+      rgba(5, 3, 3, 0.22) 48%,
+      rgba(5, 3, 3, 0) 68%
+    );
+}
+
+body.theme-grimrock .lobby_title {
+  font-family: "Blackmoor", "New Rocker", Georgia, serif;
+  letter-spacing: 0.06em;
+  padding-left: 0.06em;
+  color: #f6efe2;
+  -webkit-text-stroke: 0.4px rgba(0, 0, 0, 0.65);
+  text-shadow:
+    0 1px 0 #000,
+    0 0 10px rgba(0, 0, 0, 0.95),
+    0 2px 18px rgba(0, 0, 0, 0.95),
+    0 8px 32px rgba(0, 0, 0, 0.8);
+}
+
+body.theme-grimrock .lobby_subtitle {
+  font-family: Georgia, "Times New Roman", serif;
+  letter-spacing: 0.28em;
+  color: #e8dcc8;
+  text-shadow: 0 1px 0 #000, 0 0 12px rgba(0, 0, 0, 0.9), 0 2px 16px #000;
+}
+
+body.theme-grimrock .last-line,
+body.theme-grimrock .route-note,
+body.theme-grimrock .last-line.quiet,
+body.theme-grimrock .panel-note.quiet {
+  color: rgba(246, 239, 226, 0.9);
+  text-shadow: 0 1px 0 #000, 0 0 10px rgba(0, 0, 0, 0.9), 0 2px 14px #000;
+}
+
+body.theme-grimrock .worlds-back {
+  color: #f0e6d4;
+  background: rgba(8, 6, 5, 0.82);
+  border-color: rgba(230, 212, 184, 0.32);
+}
+
+body.theme-grimrock .worlds-back:hover {
+  color: #fff;
+  background: rgba(230, 212, 184, 0.12);
+  border-color: rgba(230, 212, 184, 0.55);
+  box-shadow: 0 0 18px rgba(196, 90, 90, 0.16);
+}
+
+body.theme-grimrock .play {
+  background: rgba(8, 6, 5, 0.78);
+  border-color: rgba(230, 212, 184, 0.28);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+}
+
+body.theme-grimrock .play:hover {
+  border-color: rgba(230, 212, 184, 0.55);
+  box-shadow: 0 0 28px rgba(196, 90, 90, 0.18), 0 22px 56px rgba(0, 0, 0, 0.45);
+}
+
+body.theme-grimrock .play.is-running {
+  border-color: rgba(196, 90, 90, 0.55);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55), 0 0 22px rgba(196, 90, 90, 0.18);
+}
+
+body.theme-grimrock .play.is-running:hover {
+  border-color: rgba(196, 90, 90, 0.8);
+}
+
+body.theme-grimrock .play-copy strong {
+  font-family: Georgia, "Times New Roman", serif;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+body.theme-grimrock .status-card,
+body.theme-grimrock .dropdown-menu,
+body.theme-grimrock .dropdown-trigger,
+body.theme-grimrock .account-card {
+  background: rgba(8, 6, 5, 0.82);
 }

@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Orbitalis</title>
+    <link rel="stylesheet" href="/site.css" />
+  </head>
+  <body>
+    <div class="stars" aria-hidden="true"></div>
+    <header class="top">
+      <a class="brand" href="#home">Orbitalis</a>
+      <nav>
+        <a href="#home" data-nav="home">Главная</a>
+        <a href="#servers" data-nav="servers">Серверы</a>
+        <a href="#mine" data-nav="mine">Мои серверы</a>
+      </nav>
+      <div class="who" id="who"></div>
+    </header>
+
+    <main>
+      <section class="view" id="view-home">
+        <div class="landing-hero">
+          <img class="landing-logo" src="/media/logo.png" alt="" />
+          <h1>ORBITALIS</h1>
+          <p class="orbit-sub">Space Station</p>
+          <p class="lede">Лаунчер, через который заходят на станцию. Свой сервер ставится рядом, без отдельной регистрации в BYOND.</p>
+          <div class="hero-actions">
+            <a class="btn primary play-btn" href="https://devassets.hornyjail.space/launcher/latest">Скачать лаунчер</a>
+            <a class="btn ghost" href="#servers">Смотреть серверы</a>
+          </div>
+        </div>
+
+        <div class="worlds">
+          <a class="world is-orbitalis" href="#servers">
+            <span class="world-kicker">Домашний мир</span>
+            <span class="world-name">Orbitalis</span>
+            <span class="world-note">Станция, маршруты, Discord</span>
+          </a>
+          <a class="world is-grim" href="#servers">
+            <span class="world-veil"></span>
+            <span class="world-kicker">Наш проект</span>
+            <span class="world-name grim-name">Grimrock</span>
+            <span class="world-note">Тот же лаунчер, другой мир</span>
+          </a>
+        </div>
+
+        <section class="pitch">
+          <div>
+            <p class="kicker">Как это устроено</p>
+            <h2>Игра начинается с лаунчера, не с сайта BYOND.</h2>
+          </div>
+          <div class="pitch-grid">
+            <article>
+              <h3>Игроку</h3>
+              <p>Один файл. Лаунчер сам ставит клиент, подтягивает ресурсы и сажает на выбранный сервер.</p>
+            </article>
+            <article>
+              <h3>Владельцу</h3>
+              <p>Вход через Discord, карточка сервера и <code>orbitalis_bridge.dm</code> в билд. Оттуда идут онлайн и наши входы.</p>
+            </article>
+            <article>
+              <h3>Сети</h3>
+              <p>Orbitalis остаётся домом. Остальные миры живут в той же колонке справа, каждый со своим фоном.</p>
+            </article>
+          </div>
+        </section>
+
+        <footer class="landing-foot">
+          <span>Orbitalis</span>
+          <a href="https://discord.gg/uj8HN4GB7s">Discord</a>
+          <a href="#mine">Добавить сервер</a>
+        </footer>
+      </section>
+
+      <section class="view" id="view-servers" hidden>
+        <div class="browser">
+          <div class="stage" id="stage">
+            <div class="stage-copy" id="stage-copy"></div>
+          </div>
+          <aside class="rail">
+            <div class="rail-head">Серверы</div>
+            <div class="rail-scroll" id="catalog"></div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="view" id="view-mine" hidden>
+        <div class="mine">
+          <aside>
+            <div class="list-head">
+              <span>Мои серверы</span>
+              <button type="button" id="new-server">Новый</button>
+            </div>
+            <div id="mine-list"></div>
+            <p class="gate" id="gate">Войди через Discord, чтобы добавить сервер.</p>
+          </aside>
+          <form id="form" hidden>
+            <label>Название <input name="name" required maxlength="48" /></label>
+            <div class="row">
+              <label>Хост <input name="host" required placeholder="play.example.com" /></label>
+              <label>Порт <input name="port" required value="2506" inputmode="numeric" /></label>
+            </div>
+            <div class="row">
+              <label>BYOND
+                <select name="byondMajor">
+                  <option>516</option>
+                  <option>515</option>
+                  <option>514</option>
+                  <option>513</option>
+                </select>
+              </label>
+              <label>Вход
+                <select name="authMode">
+                  <option value="discord">Discord</option>
+                  <option value="byond">Ключ BYOND</option>
+                </select>
+              </label>
+            </div>
+            <div class="row">
+              <label>Фон
+                <select name="background">
+                  <option value="plain">Простой</option>
+                  <option value="orbitalis">Orbitalis</option>
+                  <option value="grimrock">Grimrock</option>
+                </select>
+              </label>
+              <label>Роль
+                <select name="role" id="role">
+                  <option value="guest">В общем списке</option>
+                  <option value="sibling">Наш проект</option>
+                  <option value="home">Домашний</option>
+                </select>
+              </label>
+            </div>
+            <p class="hint" id="role-hint" hidden>Домашний мир и свои проекты может отметить только Orbitalis.</p>
+            <p class="error" id="error" hidden></p>
+            <div class="actions">
+              <button class="btn primary" type="submit">Сохранить</button>
+              <button class="btn danger" type="button" id="remove" hidden>Удалить</button>
+            </div>
+            <div class="token-box" id="token-box" hidden>
+              <p>Токен сервера <code id="token"></code></p>
+              <div class="actions">
+                <button class="btn" type="button" id="download">Скачать orbitalis_bridge.dm</button>
+                <button class="btn" type="button" id="rotate">Новый токен</button>
+              </div>
+              <p class="hint">В <code>world/New()</code> вызови <code>orbitalis_bridge_start()</code>. В <code>client/New()</code> — <code>orbitalis_bridge_login(src)</code>.</p>
+            </div>
+          </form>
+        </div>
+      </section>
+    </main>
+    <script src="/site.js"></script>
+  </body>
+</html>
